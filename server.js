@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
+import fetch from 'node-fetch'; // Asegúrate de tener node-fetch instalado
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -28,11 +29,17 @@ app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     console.log("🔍 Pregunta recibida:", pregunta);
     
-    // Búsqueda mejorada con textSearch (Web Search en español)
+    // 1. Limpieza de palabras irrelevantes para mejorar la búsqueda
+    const stopWords = ["me", "quiero", "tengo", "la", "el", "los", "las", "un", "una", "de", "del", "como", "en", "qué", "que"];
+    const palabras = pregunta.toLowerCase().split(" ").filter(p => !stopWords.includes(p) && p.length > 2);
+    
+    // 2. Formatear para búsqueda flexible (OR)
+    const queryBusqueda = palabras.join(" | ");
+    
     const { data: articulos, error } = await supabase
       .from("articulos")
       .select("id, numero_articulo, contenido, ley_id")
-      .textSearch("contenido", pregunta.split(" ").join(" & "), {
+      .textSearch("contenido", queryBusqueda, {
         type: "websearch",
         config: "spanish"
       })
@@ -116,7 +123,7 @@ Instrucciones:
       respuesta += "\n\n---\n⚠️ **LexnaVe es una orientadora legal con IA.** Para tu caso específico, consulta con un profesional del Derecho.";
       
     } else {
-      respuesta = "❌ No encontré artículos relacionados en mi base de datos para esa consulta. Intenta con palabras clave más específicas.";
+      respuesta = "❌ No encontré artículos relacionados en mi base de datos para esa consulta. Intenta con palabras clave más específicas (ej. 'divorcio', 'daño', 'custodia').";
     }
     
     res.json({ respuesta, articulos: resultados });
