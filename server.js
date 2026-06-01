@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
-import fetch from 'node-fetch'; // Asegúrate de tener node-fetch instalado
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -29,13 +28,14 @@ app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     console.log("🔍 Pregunta recibida:", pregunta);
     
-    // 1. Limpieza de palabras irrelevantes para mejorar la búsqueda
+    // 1. Limpieza de palabras irrelevantes (stop words) para mejorar la búsqueda
     const stopWords = ["me", "quiero", "tengo", "la", "el", "los", "las", "un", "una", "de", "del", "como", "en", "qué", "que"];
     const palabras = pregunta.toLowerCase().split(" ").filter(p => !stopWords.includes(p) && p.length > 2);
     
-    // 2. Formatear para búsqueda flexible (OR)
+    // 2. Formatear para búsqueda flexible (usando OR '|')
     const queryBusqueda = palabras.join(" | ");
     
+    // Búsqueda flexible en Supabase
     const { data: articulos, error } = await supabase
       .from("articulos")
       .select("id, numero_articulo, contenido, ley_id")
