@@ -28,11 +28,14 @@ app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     console.log("🔍 Pregunta recibida:", pregunta);
     
-    // Búsqueda con log de depuración
+    // Búsqueda mejorada con textSearch (Web Search en español)
     const { data: articulos, error } = await supabase
       .from("articulos")
       .select("id, numero_articulo, contenido, ley_id")
-      .ilike("contenido", `%${pregunta}%`)
+      .textSearch("contenido", pregunta.split(" ").join(" & "), {
+        type: "websearch",
+        config: "spanish"
+      })
       .limit(5);
     
     if (error) {
@@ -113,7 +116,7 @@ Instrucciones:
       respuesta += "\n\n---\n⚠️ **LexnaVe es una orientadora legal con IA.** Para tu caso específico, consulta con un profesional del Derecho.";
       
     } else {
-      respuesta = "❌ No encontré artículos relacionados en mi base de datos para esa consulta.";
+      respuesta = "❌ No encontré artículos relacionados en mi base de datos para esa consulta. Intenta con palabras clave más específicas.";
     }
     
     res.json({ respuesta, articulos: resultados });
