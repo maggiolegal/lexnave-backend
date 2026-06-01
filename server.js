@@ -19,52 +19,152 @@ if (!SUPABASE_KEY || !GROQ_API_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Mapeo de temas a leyes relevantes para priorizar búsquedas
+// === 1. DICCIONARIO DE TRADUCCIÓN COLOQUIAL A JURÍDICO ===
+// Esto soluciona el problema de "no encuentro resultados" por diferencia de lenguaje
+const TRADUCTOR_COLOQUIAL_JURIDICO = {
+  'casa': 'inmueble vivienda bien raiz propiedad',
+  'carro': 'vehiculo automotor transporte',
+  'choque': 'accidente transito colision siniestro',
+  'daño': 'perjuicio menoscabo indemnizacion responsabilidad ilicito',
+  'compre': 'compraventa compra venta contrato',
+  'entregar': 'tradicion entrega posesion tenencia',
+  'letra': 'titulo valor letra cambio pagare documento',
+  'pagar': 'pago cumplimiento obligacion deuda solventar',
+  'despido': 'terminacion relacion laboral despido injustificado',
+  'jefe': 'patron empleador trabajador',
+  'sueldo': 'salario remuneracion prestaciones',
+  'divorcio': 'disolucion vinculo matrimonial separacion cuerpos',
+  'hijos': 'filiacion patria potestad responsabilidad crianza',
+  'herencia': 'sucesion causante heredero legatario testamento',
+  'vecino': 'condominio copropiedad comunidad',
+  'ruido': 'molestias servidumbres uso disfrute'
+};
+
+// === 2. MAPEO DE TEMAS A LEYES ===
 const TEMAS_A_LEYES = {
   'divorcio': ['Código Civil', 'Constitución'],
-  'custodia': ['Código Civil', 'LOPNNA'],
-  'pensión': ['Código Civil', 'LOTTT'],
-  'alimentos': ['Código Civil', 'LOPNNA'],
+  'matrimonio': ['Código Civil'],
+  'custodia': ['Código Civil'],
+  'pensión': ['Código Civil'],
+  'alimentos': ['Código Civil'],
   'herencia': ['Código Civil'],
   'sucesión': ['Código Civil'],
+  'testamento': ['Código Civil'],
   'contrato': ['Código Civil', 'Código de Comercio'],
   'compra': ['Código Civil', 'Código de Comercio'],
   'venta': ['Código Civil', 'Código de Comercio'],
-  'despido': ['LOTTT', 'Constitución'],
-  'laboral': ['LOTTT', 'Constitución'],
-  'trabajo': ['LOTTT', 'Constitución'],
-  'prestaciones': ['LOTTT'],
-  'vacaciones': ['LOTTT'],
+  'arrendamiento': ['Código Civil'],
+  'despido': ['Constitución'], // Nota: Asumimos LOTTT si estuviera, pero usamos Const/Civil por ahora
+  'laboral': ['Constitución'],
+  'trabajo': ['Constitución'],
+  'salario': ['Constitución'],
   'penal': ['Código Penal', 'COPP'],
   'delito': ['Código Penal', 'COPP'],
   'carcel': ['Código Penal', 'COPP'],
   'prisión': ['Código Penal', 'COPP'],
+  'hurto': ['Código Penal'],
+  'robo': ['Código Penal'],
+  'estafa': ['Código Penal'],
   'procedimiento': ['Código de Procedimiento Civil', 'COPP'],
   'demanda': ['Código de Procedimiento Civil'],
   'juicio': ['Código de Procedimiento Civil', 'COPP'],
+  'citacion': ['Código de Procedimiento Civil'],
   'propiedad': ['Código Civil', 'Ley de Propiedad Horizontal'],
   'apartamento': ['Ley de Propiedad Horizontal'],
   'condominio': ['Ley de Propiedad Horizontal'],
+  'asamblea': ['Ley de Propiedad Horizontal'],
   'mercantil': ['Código de Comercio'],
   'empresa': ['Código de Comercio'],
-  'sociedad': ['Código de Comercio']
+  'sociedad': ['Código de Comercio'],
+  'cheque': ['Código de Comercio'],
+  'letra de cambio': ['Código de Comercio'],
+  'pagare': ['Código de Comercio']
 };
 
-// Palabras clave legales venezolanas
+// === 3. BASE DE DATOS EXTENSA DE PALABRAS CLAVE LEGALES (7 LEYES) ===
 const PALABRAS_CLAVE_LEGALES = [
-  'divorcio', 'custodia', 'pensión', 'alimentos', 'herencia', 'sucesión',
-  'contrato', 'despido', 'laboral', 'penal', 'delito', 'demanda',
-  'propiedad', 'arrendamiento', 'consumidor', 'tránsito', 'familia',
-  'menor', 'violencia', 'género', 'trabajo', 'prestaciones', 'vacaciones',
-  'seguro social', 'ivss', 'lopti', 'lopcymat', 'código civil', 'código penal',
-  'constitución', 'tribunal', 'juez', 'sentencia', 'recurso', 'amparo',
-  'copa', 'copp', 'lotta', 'lot tt'
+  // --- TÉRMINOS GENERALES Y PROCESALES ---
+  'accion', 'demanda', 'recurso', 'amparo', 'casacion', 'apelacion', 
+  'sentencia', 'auto', 'proveido', 'tribunal', 'juez', 'fiscalia', 
+  'ministerio publico', 'abogado', 'defensor', 'citacion', 'notificacion',
+  'prueba', 'testigo', 'perito', 'inspeccion', 'diligencia', 'expediente',
+  'competencia', 'jurisdiccion', 'nulidad', 'prescripcion', 'caducidad',
+  
+  // --- CÓDIGO CIVIL (Familia, Bienes, Obligaciones) ---
+  'capacidad', 'domicilio', 'ausencia', 'matrimonio', 'divorcio', 
+  'separacion', 'cuerpos', 'filiacion', 'adopcion', 'patria', 'potestad',
+  'tutela', 'curatela', 'mayoria', 'edad', 'bienes', 'muebles', 'inmuebles',
+  'propiedad', 'posesion', 'usufructo', 'uso', 'habitacion', 'servidumbre',
+  'hipoteca', 'prenda', 'anticresis', 'obligacion', 'contrato', 'consentimiento',
+  'objeto', 'causa', 'vicio', 'error', 'dolo', 'violencia', 'lesion',
+  'simulacion', 'fraude', 'pago', 'cesion', 'novacion', 'compensacion',
+  'confusion', 'remision', 'prescripcion', 'adquirir', 'dominio', 'herencia',
+  'sucesion', 'testamento', 'legado', 'albacea', 'particion', 'colacion',
+  'donacion', 'venta', 'compra', 'permuta', 'arrendamiento', 'comodato',
+  'deposito', 'mandato', 'fianza', 'transaccion', 'cuasicontrato',
+  'enriquecimiento', 'ilicito', 'hecho', 'daño', 'perjuicio', 'indemnizacion',
+  
+  // --- CÓDIGO DE COMERCIO (Mercantil) ---
+  'comerciante', 'actos', 'comercio', 'libros', 'contabilidad', 'balanza',
+  'corredor', 'comisionista', 'agente', 'sociedad', 'anonima', 'comandita',
+  'responsabilidad', 'limitada', 'nombre', 'colectiva', 'liquidacion',
+  'quiebra', 'concurso', 'acreedores', 'suspension', 'pagos', 'titulo',
+  'valor', 'negociable', 'letra', 'cambio', 'pagare', 'cheque', 'endoso',
+  'acepte', 'aval', 'protesto', 'vencimiento', 'intereses', 'moratorios',
+  'barco', 'navegacion', 'averia', 'fletamento', 'seguro', 'maritimo',
+  
+  // --- CÓDIGO PENAL (Delitos y Penas) ---
+  'delito', 'falta', 'pena', 'prision', 'arresto', 'multa', 'inhabilitacion',
+  'extranjero', 'expulsion', 'tentativa', 'complicidad', 'encubrimiento',
+  'concurrencia', 'reincidencia', 'atenuantes', 'agravantes', 'eximentes',
+  'legitima', 'defensa', 'estado', 'necesidad', 'cumplimiento', 'deber',
+  'ejercicio', 'derecho', 'homicidio', 'asesinato', 'infanticidio', 'aborto',
+  'lesiones', 'culposas', 'dolosas', 'veneno', 'abandono', 'persona',
+  'incendio', 'estragos', 'naufragio', 'violacion', 'estupro', 'rapto',
+  'seduccion', 'corrupcion', 'menores', 'bigamia', 'incesto', 'ultraje',
+  'pudor', 'calumnia', 'injuria', 'difamacion', 'hurto', 'robo', 'extorsion',
+  'estafa', 'usura', 'apropiacion', 'indebida', 'estelionato', 'usura',
+  'administracion', 'publica', 'peculado', 'malversacion', 'cohecho',
+  'soborno', 'trafico', 'influencias', 'prevaricato', 'denegacion', 'justicia',
+  'retardo', 'funcionario', 'publico', 'falsedad', 'documento', 'moneda',
+  'sellos', 'armas', 'explosivos', 'orden', 'publico', 'resistencia',
+  'atentado', 'motin', 'rebelion', 'sedicion',
+  
+  // --- CÓDIGO DE PROCEDIMIENTO CIVIL (Proceso Civil) ---
+  'competencia', 'fuero', 'domicilio', 'recusacion', 'inhibicion',
+  'intervencion', 'terceros', 'litisconsorcio', 'acumulacion', 'demandado',
+  'actor', 'libelo', 'emplazamiento', 'contestacion', 'reconvencion',
+  'pruebas', 'promocion', 'evacuacion', 'informes', 'sentencia', 'casacion',
+  'revision', 'ejecucion', 'embargo', 'secuestro', 'intervencion',
+  'judicial', 'remate', 'adjudicacion', 'costas', 'interes', 'mora',
+  
+  // --- CÓDIGO ORGÁNICO PROCESAL PENAL (Proceso Penal) ---
+  'investigacion', 'flagrancia', 'detencion', 'presentacion', 'imputado',
+  'acusacion', 'juicio', 'oral', 'publico', 'veredicto', 'absolucion',
+  'condena', 'reparacion', 'victim', 'testigo', 'proteccion', 'medidas',
+  'cautelares', 'libertad', 'condicional', 'suspension', 'proceso',
+  'abreviado', 'aceptacion', 'cargos', 'apertura', 'debate', 'deliberacion',
+  
+  // --- LEY DE PROPIEDAD HORIZONTAL ---
+  'condominio', 'copropiedad', 'partes', 'comunes', 'privativas',
+  'asamblea', 'conjunto', 'residencial', 'administrador', 'junta',
+  'condominios', 'cuotas', 'gastos', 'mantenimiento', 'reglamento',
+  'obras', 'mejoras', 'innovaciones', 'uso', 'destino', 'inmueble',
+  
+  // --- CONSTITUCIÓN (Derechos Fundamentales) ---
+  'derechos', 'humanos', 'garantias', 'vida', 'integridad', 'personal',
+  'libertad', 'seguridad', 'juridica', 'igualdad', 'no', 'discriminacion',
+  'educacion', 'salud', 'vivienda', 'trabajo', 'seguridad', 'social',
+  'familia', 'niños', 'adolescentes', 'adultos', 'mayores', 'pueblos',
+  'indigenas', 'ambiente', 'deberes', 'ciudadanos', 'sufragio', 'participacion',
+  'poder', 'publico', 'legislativo', 'ejecutivo', 'judicial', 'electoral',
+  'ciudadano', 'descentralizacion', 'municipios', 'estados', 'regiones'
 ];
 
 app.get('/', (req, res) => {
   res.json({ 
     message: 'LexnaVe Backend funcionando',
-    version: '3.0',
+    version: '4.0 - Enhanced Semantic Search',
     especialidad: 'Derecho Venezolano',
     leyes_cargadas: {
       'Constitución': 350,
@@ -104,11 +204,11 @@ app.post('/api/consultar', async (req, res) => {
       articulos = resultado.data;
       error = resultado.error;
     } else {
-      // Búsqueda normal por contenido
-      const palabrasClave = extraerPalabrasClave(pregunta);
+      // Búsqueda normal por contenido SEMÁNTICO MEJORADO
+      const palabrasClave = extraerPalabrasClaveMejorado(pregunta);
       const leyesRelevantes = identificarLeyesRelevantes(pregunta);
       
-      console.log("📝 Palabras clave:", palabrasClave);
+      console.log("📝 Palabras clave (Traducidas):", palabrasClave);
       console.log("⚖️ Leyes relevantes:", leyesRelevantes);
       
       const queryBusqueda = construirQueryBusqueda(palabrasClave);
@@ -127,7 +227,7 @@ app.post('/api/consultar', async (req, res) => {
           type: "websearch",
           config: "spanish"
         })
-        .limit(10);
+        .limit(12); // Aumentamos un poco el límite
       
       articulos = resultado.data;
       error = resultado.error;
@@ -215,7 +315,6 @@ app.post('/api/consultar', async (req, res) => {
 // === FUNCIONES ESPECIALIZADAS ===
 
 function detectarConsultaArticuloEspecifico(pregunta) {
-  // Patrones: "artículo 223", "art 223", "articulo 223 del cpc"
   const regexArticulo = /(?:art[íi]culo|art\.?)\s+(\d+)(?:\s+(?:del|de la|de)\s+([a-záéíóúñ\s]+))?/i;
   const match = pregunta.match(regexArticulo);
   
@@ -223,7 +322,6 @@ function detectarConsultaArticuloEspecifico(pregunta) {
     const numero = match[1];
     let ley = match[2] ? match[2].trim() : null;
     
-    // Normalizar nombres de leyes
     if (ley) {
       ley = normalizarNombreLey(ley);
     }
@@ -277,7 +375,6 @@ async function buscarArticuloEspecifico({ numero, ley }) {
     `)
     .eq("numero_articulo", numero);
   
-  // Si se especificó la ley, filtrar por ella
   if (ley) {
     query = query.ilike("leyes.nombre", `%${ley}%`);
   }
@@ -285,19 +382,36 @@ async function buscarArticuloEspecifico({ numero, ley }) {
   return await query.limit(5);
 }
 
-function extraerPalabrasClave(pregunta) {
-  const stopWords = ["me", "quiero", "tengo", "la", "el", "los", "las", "un", "una", "de", "del", "como", "en", "qué", "que", "por", "para", "con", "sin", "sobre", "entre", "hago", "puedo", "debo"];
+// === FUNCIÓN MEJORADA: EXTRACCIÓN CON TRADUCCIÓN ===
+function extraerPalabrasClaveMejorado(pregunta) {
+  const stopWords = ["me", "quiero", "tengo", "la", "el", "los", "las", "un", "una", "de", "del", "como", "en", "qué", "que", "por", "para", "con", "sin", "sobre", "entre", "hago", "puedo", "debo", "se", "es", "son"];
   
-  let palabras = pregunta.toLowerCase()
+  let palabrasOriginales = pregunta.toLowerCase()
     .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "")
     .split(/\s+/)
     .filter(p => !stopWords.includes(p) && p.length > 2);
+
+  // 1. Aplicar traducción coloquial -> jurídico
+  let terminosJuridicosAgregados = [];
   
-  const palabrasLegales = PALABRAS_CLAVE_LEGALES.filter(keyword => 
+  palabrasOriginales.forEach(palabra => {
+    if (TRADUCTOR_COLOQUIAL_JURIDICO[palabra]) {
+      // Agregar los sinónimos jurídicos a la lista
+      const sinonimos = TRADUCTOR_COLOQUIAL_JURIDICO[palabra].split(' ');
+      terminosJuridicosAgregados.push(...sinonimos);
+    }
+  });
+
+  // 2. Identificar palabras clave legales existentes en la pregunta
+  const palabrasLegalesExistentes = PALABRAS_CLAVE_LEGALES.filter(keyword => 
     pregunta.toLowerCase().includes(keyword)
   );
+
+  // 3. Combinar todo: Originales + Traducciones + Legales Existentes
+  const todasLasPalabras = [...palabrasOriginales, ...terminosJuridicosAgregados, ...palabrasLegalesExistentes];
   
-  return [...new Set([...palabras, ...palabrasLegales])].slice(0, 8);
+  // Eliminar duplicados y limitar
+  return [...new Set(todasLasPalabras)].slice(0, 12);
 }
 
 function identificarLeyesRelevantes(pregunta) {
@@ -316,6 +430,7 @@ function identificarLeyesRelevantes(pregunta) {
 function construirQueryBusqueda(palabrasClave) {
   if (palabrasClave.length === 0) return "";
   
+  // Priorizar las primeras 3 como obligatorias (+), el resto opcionales
   const obligatorias = palabrasClave.slice(0, 3);
   const opcionales = palabrasClave.slice(3);
   
@@ -351,17 +466,17 @@ function filtrarYPriorizarArticulos(articulos, pregunta) {
       score += 5;
     }
     
-    // Coincidencias de palabras
+    // Coincidencias de palabras originales
     palabrasPregunta.forEach(palabra => {
       if (palabra.length > 3 && contenido.includes(palabra)) {
         score += 2;
       }
     });
     
-    // Bonus por coincidencia exacta de términos legales
+    // Bonus por coincidencia de términos legales expandidos
     PALABRAS_CLAVE_LEGALES.forEach(keyword => {
-      if (pregunta.toLowerCase().includes(keyword) && contenido.includes(keyword)) {
-        score += 3;
+      if (contenido.includes(keyword)) {
+        score += 1; // Pequeño bonus por densidad legal
       }
     });
     
@@ -396,27 +511,17 @@ PREGUNTA DEL CIUDADANO: "${pregunta}"
 
 INSTRUCCIONES ESTRICTAS:
 
-1. **FUNDAMENTO EXCLUSIVO**: Tu respuesta debe basarse ÚNICAMENTE en los artículos mostrados arriba. NO inventes normas, NO cites artículos que no estén presentes.
+1. **FUNDAMENTO EXCLUSIVO**: Tu respuesta debe basarse ÚNICAMENTE en los artículos mostrados arriba. NO inventes normas.
 
 2. **ESTRUCTURA OBLIGATORIA**:
-   a) Respuesta directa (2-3 líneas máximo)
-   b) Fundamento legal (explica qué dicen los artículos)
-   c) Procedimiento (si aplica, paso a paso)
-   d) Artículos aplicables (lista clara)
+   a) Respuesta directa y clara.
+   b) Explicación del fundamento legal basado en los textos provistos.
+   c) Si aplica, pasos procedimentales.
+   d) Lista de artículos citados.
 
-3. **TONO**: 
-   - Claro y accesible para ciudadanos sin formación legal
-   - Profesional pero empático
-   - Explica tecnicismos cuando los uses
+3. **TONO**: Profesional, empático y claro para no abogados.
 
-4. **SI NO HAY INFORMACIÓN SUFICIENTE**:
-   - Dilo claramente: "Los artículos disponibles no proporcionan información suficiente sobre..."
-   - Sugiere consultar la ley completa o un abogado
-
-5. **FORMATO**:
-   - Párrafos cortos
-   - Viñetas para listas
-   - Números de artículos en **negrita**
+4. **SI NO HAY INFORMACIÓN SUFICIENTE**: Indícalo claramente.
 
 RESPUESTA:`;
 }
@@ -443,44 +548,10 @@ function extraerFuentesCitadas(articulos, respuesta) {
 
 function generarRespuestaSinResultados(pregunta, esArticuloEspecifico) {
   if (esArticuloEspecifico) {
-    return `No encontré el artículo específico que mencionas en mi base de datos actual.
-
-Esto puede deberse a:
-• El artículo tiene una numeración diferente en la versión cargada
-• La ley no está completamente indexada
-
-Te recomiendo:
-1. Verificar el número de artículo en la Gaceta Oficial
-2. Consultar el texto completo de la ley en: www.gacetaoficial.gob.ve
-3. Buscar asesoría legal profesional
-
-¿Puedes reformular tu pregunta describiendo el tema legal en lugar del número de artículo?`;
+    return `No encontré el artículo específico que mencionas. Verifica el número o la ley en la Gaceta Oficial.`;
   }
   
-  const esLegal = PALABRAS_CLAVE_LEGALES.some(k => pregunta.toLowerCase().includes(k));
-  
-  if (esLegal) {
-    return `No encontré información específica para: "${pregunta}"
-
-Sugerencias:
-• Usa términos más específicos: "divorcio causal", "despido injustificado", "pensión alimentaria"
-• Menciona la ley si la conoces: "¿Qué dice el Código Civil sobre...?"
-• Describe tu situación con más detalle
-
-Recuerda: LexnaVe consulta más de 4,500 artículos de las principales leyes venezolanas.`;
-  }
-  
-  return `Tu consulta parece estar fuera del ámbito legal venezolano.
-
-LexnaVe responde preguntas sobre:
-✓ Derecho de Familia (divorcio, custodia, alimentos)
-✓ Derecho Laboral (despidos, prestaciones, contratos)
-✓ Derecho Civil (contratos, propiedad, herencias)
-✓ Derecho Penal (delitos, procedimientos)
-✓ Derecho Mercantil (sociedades, títulos valores)
-✓ Derecho Procesal (demandas, recursos, juicios)
-
-Por favor, formula una pregunta específica sobre estos temas.`;
+  return `No encontré información precisa con esos términos. Intenta usar lenguaje más formal (ej: en vez de "choque", usa "accidente de tránsito"; en vez de "casa", usa "inmueble").`;
 }
 
 function formatearRespuestaFinal(respuestaIA, fuentesCitadas) {
@@ -494,13 +565,13 @@ function formatearRespuestaFinal(respuestaIA, fuentesCitadas) {
   }
   
   respuesta += "\n\n---\n";
-  respuesta += "⚖️ **Aviso Legal**: LexnaVe ofrece orientación general basada en legislación venezolana vigente. No constituye asesoramiento legal personalizado. Para tu caso específico, consulta con un abogado colegiado en Venezuela.\n";
-  respuesta += "🆘 Emergencias: Defensoría del Pueblo (0800-333-3637) o tribunales de tu localidad.";
+  respuesta += "⚖️ **Aviso Legal**: Orientación general. Consulta a un abogado para tu caso específico.\n";
+  respuesta += "🆘 Emergencias: Defensoría del Pueblo (0800-333-3637).";
   
   return respuesta;
 }
 
 app.listen(PORT, () => {
-  console.log(`🚀 LexnaVe v3.0 activo en puerto ${PORT}`);
-  console.log(`📚 Base: 4,525 artículos de 7 leyes venezolanas`);
+  console.log(`🚀 LexnaVe v4.0 activo en puerto ${PORT}`);
+  console.log(`📚 Base: 4,525 artículos | Diccionario Semántico Activo`);
 });
