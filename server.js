@@ -8,7 +8,6 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// Variables de entorno (se configuran en Render)
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
@@ -29,27 +28,48 @@ app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     console.log("🔍 Pregunta recibida:", pregunta);
     
-    // 1. Buscar artículos usando búsqueda inteligente (similitud)
+    // Búsqueda con log de depuración
     const { data: articulos, error } = await supabase
-      .rpc('buscar_articulos_inteligente', { pregunta: pregunta });
+      .from("articulos")
+      .select("id, numero_articulo, contenido, ley_id")
+      .ilike("contenido", `%${pregunta}%`)
+      .limit(5);
     
     if (error) {
-      console.error("Error en Supabase:", error);
-      return res.json({ articulos: [] });
+      console.error("❌ Error específico de Supabase:", error);
+      return res.json({ respuesta: "Error en base de datos: " + error.message, articulos: [] });
     }
     
-    // 2. Formatear resultados
+    console.log("📊 Artículos devueltos por Supabase:", articulos ? articulos.length : "null");
+    
+    // Obtener nombres de leyes
+    const leyIds = [...new Set((articulos || []).map(a => a.ley_id).filter(id => id))];
+    let leyesMap = new Map();
+    
+    if (leyIds.length > 0) {
+      const { data: leyes, error: errorLeyes } = await supabase
+        .from("leyes")
+        .select("id, nombre")
+        .in("id", leyIds);
+      
+      if (errorLeyes) console.error("❌ Error al obtener leyes:", errorLeyes);
+      if (leyes) {
+        leyes.forEach(ley => leyesMap.set(ley.id, ley.nombre));
+      }
+    }
+    
+    // Formatear resultados
     const resultados = (articulos || []).map(art => ({
       id: art.id,
       numero_articulo: art.numero_articulo,
       contenido: art.contenido,
       ley_id: art.ley_id,
-      nombre_ley: art.nombre_ley || "Ley venezolana"
+      nombre_ley: leyesMap.get(art.ley_id) || "Ley venezolana"
     }));
     
-    console.log(`✅ Encontrados ${resultados.length} artículos`);
+    console.log(`✅ Procesados ${resultados.length} artículos para enviar a Groq`);
     
-    // 3. Generar respuesta con Groq
+    // Generar respuesta con Groq
     let respuesta = "";
     if (resultados.length > 0) {
       let contexto = "";
@@ -79,7 +99,12 @@ Instrucciones:
       });
       
       const groqData = await groqRes.json();
-      respuesta = groqData.choices[0].message.content;
+      if (groqData.choices && groqData.choices[0]) {
+        respuesta = groqData.choices[0].message.content;
+      } else {
+        console.error("❌ Error en respuesta de Groq:", groqData);
+        respuesta = "⚠️ Hubo un error al generar la respuesta con IA.";
+      }
       
       respuesta += "\n\n📖 **Fuentes consultadas:**";
       resultados.slice(0, 3).forEach(art => {
@@ -88,14 +113,14 @@ Instrucciones:
       respuesta += "\n\n---\n⚠️ **LexnaVe es una orientadora legal con IA.** Para tu caso específico, consulta con un profesional del Derecho.";
       
     } else {
-      respuesta = "❌ No encontré artículos relacionados en mi base de datos.";
+      respuesta = "❌ No encontré artículos relacionados en mi base de datos para esa consulta.";
     }
     
     res.json({ respuesta, articulos: resultados });
     
   } catch (error) {
-    console.error("❌ Error:", error.message);
-    res.json({ respuesta: `Error: ${error.message}`, articulos: [] });
+    console.error("❌ Error crítico en backend:", error.message);
+    res.status(500).json({ respuesta: `Error interno: ${error.message}`, articulos: [] });
   }
 });
 
