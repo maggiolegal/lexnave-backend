@@ -20,15 +20,15 @@ if (!SUPABASE_KEY || !GROQ_API_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // === 1. DICCIONARIO DE TRADUCCIÓN COLOQUIAL A JURÍDICO ===
-// Esto soluciona el problema de "no encuentro resultados" por diferencia de lenguaje
 const TRADUCTOR_COLOQUIAL_JURIDICO = {
   'casa': 'inmueble vivienda bien raiz propiedad',
   'carro': 'vehiculo automotor transporte',
   'choque': 'accidente transito colision siniestro',
   'daño': 'perjuicio menoscabo indemnizacion responsabilidad ilicito',
   'compre': 'compraventa compra venta contrato',
+  'vendio': 'compraventa venta enajenacion',
   'entregar': 'tradicion entrega posesion tenencia',
-  'letra': 'titulo valor letra cambio pagare documento',
+  'letra': 'titulo valor letra cambio pagare documento mercantil',
   'pagar': 'pago cumplimiento obligacion deuda solventar',
   'despido': 'terminacion relacion laboral despido injustificado',
   'jefe': 'patron empleador trabajador',
@@ -54,7 +54,7 @@ const TEMAS_A_LEYES = {
   'compra': ['Código Civil', 'Código de Comercio'],
   'venta': ['Código Civil', 'Código de Comercio'],
   'arrendamiento': ['Código Civil'],
-  'despido': ['Constitución'], // Nota: Asumimos LOTTT si estuviera, pero usamos Const/Civil por ahora
+  'despido': ['Constitución'],
   'laboral': ['Constitución'],
   'trabajo': ['Constitución'],
   'salario': ['Constitución'],
@@ -164,7 +164,7 @@ const PALABRAS_CLAVE_LEGALES = [
 app.get('/', (req, res) => {
   res.json({ 
     message: 'LexnaVe Backend funcionando',
-    version: '4.0 - Enhanced Semantic Search',
+    version: '4.1 - Flexible Query Engine',
     especialidad: 'Derecho Venezolano',
     leyes_cargadas: {
       'Constitución': 350,
@@ -208,7 +208,7 @@ app.post('/api/consultar', async (req, res) => {
       const palabrasClave = extraerPalabrasClaveMejorado(pregunta);
       const leyesRelevantes = identificarLeyesRelevantes(pregunta);
       
-      console.log("📝 Palabras clave (Traducidas):", palabrasClave);
+      console.log("📝 Palabras clave (Ordenadas):", palabrasClave);
       console.log("⚖️ Leyes relevantes:", leyesRelevantes);
       
       const queryBusqueda = construirQueryBusqueda(palabrasClave);
@@ -227,7 +227,7 @@ app.post('/api/consultar', async (req, res) => {
           type: "websearch",
           config: "spanish"
         })
-        .limit(12); // Aumentamos un poco el límite
+        .limit(12);
       
       articulos = resultado.data;
       error = resultado.error;
@@ -382,7 +382,7 @@ async function buscarArticuloEspecifico({ numero, ley }) {
   return await query.limit(5);
 }
 
-// === FUNCIÓN MEJORADA: EXTRACCIÓN CON TRADUCCIÓN ===
+// === FUNCIÓN MEJORADA: EXTRACCIÓN CON PRIORIZACIÓN JURÍDICA ===
 function extraerPalabrasClaveMejorado(pregunta) {
   const stopWords = ["me", "quiero", "tengo", "la", "el", "los", "las", "un", "una", "de", "del", "como", "en", "qué", "que", "por", "para", "con", "sin", "sobre", "entre", "hago", "puedo", "debo", "se", "es", "son"];
   
@@ -396,7 +396,6 @@ function extraerPalabrasClaveMejorado(pregunta) {
   
   palabrasOriginales.forEach(palabra => {
     if (TRADUCTOR_COLOQUIAL_JURIDICO[palabra]) {
-      // Agregar los sinónimos jurídicos a la lista
       const sinonimos = TRADUCTOR_COLOQUIAL_JURIDICO[palabra].split(' ');
       terminosJuridicosAgregados.push(...sinonimos);
     }
@@ -407,11 +406,11 @@ function extraerPalabrasClaveMejorado(pregunta) {
     pregunta.toLowerCase().includes(keyword)
   );
 
-  // 3. Combinar todo: Originales + Traducciones + Legales Existentes
-  const todasLasPalabras = [...palabrasOriginales, ...terminosJuridicosAgregados, ...palabrasLegalesExistentes];
+  // 3. Combinar todo: Jurídicos PRIMERO, luego Originales, luego Legales Generales
+  // Esto asegura que la palabra "obligatoria" (+) sea siempre el término técnico correcto
+  const todasLasPalabras = [...new Set([...terminosJuridicosAgregados, ...palabrasOriginales, ...palabrasLegalesExistentes])];
   
-  // Eliminar duplicados y limitar
-  return [...new Set(todasLasPalabras)].slice(0, 12);
+  return todasLasPalabras.slice(0, 12);
 }
 
 function identificarLeyesRelevantes(pregunta) {
@@ -427,17 +426,22 @@ function identificarLeyesRelevantes(pregunta) {
   return Array.from(leyesDetectadas);
 }
 
+// === FUNCIÓN CRÍTICA: QUERY FLEXIBLE ===
 function construirQueryBusqueda(palabrasClave) {
   if (palabrasClave.length === 0) return "";
   
-  // Priorizar las primeras 3 como obligatorias (+), el resto opcionales
-  const obligatorias = palabrasClave.slice(0, 3);
-  const opcionales = palabrasClave.slice(3);
+  // Estrategia: 
+  // 1. La primera palabra (que ahora será un término jurídico gracias al ordenamiento) es OBLIGATORIA (+)
+  // 2. El resto son OPCIONALES (ayudan a filtrar pero no bloquean si faltan)
   
-  let query = obligatorias.map(p => `+${p}`).join(" ");
+  const principal = palabrasClave[0];
+  const secundarias = palabrasClave.slice(1);
   
-  if (opcionales.length > 0) {
-    query += " " + opcionales.join(" ");
+  // Ejemplo: "+compraventa casa inmueble entrega"
+  let query = `+${principal}`;
+  
+  if (secundarias.length > 0) {
+    query += " " + secundarias.join(" ");
   }
   
   return query;
@@ -476,7 +480,7 @@ function filtrarYPriorizarArticulos(articulos, pregunta) {
     // Bonus por coincidencia de términos legales expandidos
     PALABRAS_CLAVE_LEGALES.forEach(keyword => {
       if (contenido.includes(keyword)) {
-        score += 1; // Pequeño bonus por densidad legal
+        score += 1;
       }
     });
     
@@ -572,6 +576,6 @@ function formatearRespuestaFinal(respuestaIA, fuentesCitadas) {
 }
 
 app.listen(PORT, () => {
-  console.log(`🚀 LexnaVe v4.0 activo en puerto ${PORT}`);
-  console.log(`📚 Base: 4,525 artículos | Diccionario Semántico Activo`);
+  console.log(`🚀 LexnaVe v4.1 activo en puerto ${PORT}`);
+  console.log(`📚 Base: 4,525 artículos | Query Flexible Activa`);
 });
