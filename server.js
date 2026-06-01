@@ -8,9 +8,15 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-const SUPABASE_URL = "https://dhcacnfuummsgpxujpjz.supabase.co";
-const SUPABASE_KEY = "sb_publishable_pIYUap3GDuL7xqwP0CCCWA_WrUPp1aN";
-const GROQ_API_KEY = "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";
+// Variables de entorno (se configuran en Render)
+const SUPABASE_URL = process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co";
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+
+if (!SUPABASE_KEY || !GROQ_API_KEY) {
+  console.error("❌ Faltan variables de entorno: SUPABASE_KEY y GROQ_API_KEY");
+  process.exit(1);
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -78,7 +84,6 @@ Instrucciones:
       const groqData = await groqRes.json();
       respuesta = groqData.choices[0].message.content;
       
-      // Agregar fuentes y disclaimer
       respuesta += "\n\n📖 **Fuentes consultadas:**";
       resultados.slice(0, 3).forEach(art => {
         respuesta += `\n• ${art.nombre_ley} - Art. ${art.numero_articulo}`;
