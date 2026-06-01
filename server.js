@@ -29,45 +29,27 @@ app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     console.log("🔍 Pregunta recibida:", pregunta);
     
-    // 1. Buscar artículos en Supabase (sin JOIN)
+    // 1. Buscar artículos usando búsqueda inteligente (similitud)
     const { data: articulos, error } = await supabase
-      .from("articulos")
-      .select("id, numero_articulo, contenido, ley_id")
-      .ilike("contenido", `%${pregunta}%`)
-      .limit(5);
+      .rpc('buscar_articulos_inteligente', { pregunta: pregunta });
     
     if (error) {
       console.error("Error en Supabase:", error);
       return res.json({ articulos: [] });
     }
     
-    // 2. Obtener nombres de leyes por separado
-    const leyIds = [...new Set((articulos || []).map(a => a.ley_id).filter(id => id))];
-    let leyesMap = new Map();
-    
-    if (leyIds.length > 0) {
-      const { data: leyes } = await supabase
-        .from("leyes")
-        .select("id, nombre")
-        .in("id", leyIds);
-      
-      if (leyes) {
-        leyes.forEach(ley => leyesMap.set(ley.id, ley.nombre));
-      }
-    }
-    
-    // 3. Formatear resultados
+    // 2. Formatear resultados
     const resultados = (articulos || []).map(art => ({
       id: art.id,
       numero_articulo: art.numero_articulo,
       contenido: art.contenido,
       ley_id: art.ley_id,
-      nombre_ley: leyesMap.get(art.ley_id) || "Ley venezolana"
+      nombre_ley: art.nombre_ley || "Ley venezolana"
     }));
     
     console.log(`✅ Encontrados ${resultados.length} artículos`);
     
-    // 4. Generar respuesta con Groq
+    // 3. Generar respuesta con Groq
     let respuesta = "";
     if (resultados.length > 0) {
       let contexto = "";
