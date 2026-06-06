@@ -14,29 +14,8 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Diccionario de traducción
-const TRADUCTOR = {
-  'choque': 'accidente transito colision',
-  'carro': 'vehiculo automotor',
-  'auto': 'vehiculo automotor',
-  'golpe': 'accidente colision',
-  'daño': 'perjuicio indemnizacion',
-  'daños': 'perjuicio indemnizacion'
-};
-
-function expandirPregunta(pregunta) {
-  let expandida = pregunta.toLowerCase();
-  for (const [col, jur] of Object.entries(TRADUCTOR)) {
-    if (expandida.includes(col)) expandida += " " + jur;
-  }
-  if (pregunta.toLowerCase().includes('carro') || pregunta.toLowerCase().includes('choque')) {
-    expandida += " responsabilidad civil extracontractual";
-  }
-  return expandida;
-}
-
 app.get('/', (req, res) => {
-  res.json({ message: 'LexnaVe Backend v5.1', status: 'ok' });
+  res.json({ message: 'LexnaVe Backend v9.0', status: 'ok' });
 });
 
 app.post('/api/consultar', async (req, res) => {
@@ -44,78 +23,96 @@ app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     console.log("📨 Pregunta:", pregunta);
     
-    // Detectar si es artículo específico
-    const regexArt = /art[íi]culo\s+(\d+)/i;
-    const matchArt = pregunta.match(regexArt);
+    // PASO 1: Groq clasifica la pregunta y determina qué buscar
+    const clasificacionPrompt = `Eres un clasificador legal. Analiza la pregunta y responde SOLO con JSON.
+
+PREGUNTA: "${pregunta}"
+
+RESPONDE CON: {"ley_id": número, "articulo": "número", "justificacion": "breve"}
+
+REGLAS:
+- Si habla de choque, accidente, carro, golpe, daño a propiedad → ley_id:3, articulo:1185
+- Si habla de pegar, golpear, agredir, violencia física → ley_id:6, articulo:413
+- Si habla de divorcio, separación → ley_id:3, articulo:185
+- Si habla de contrato, compra venta, incumplimiento → ley_id:3, articulo:1480
+- Si habla de letra de cambio → ley_id:4, articulo:410
+- Si no sabes → ley_id:0, articulo:0`;
+
+    const groqClasif = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: clasificacionPrompt }],
+        temperature: 0.1
+      })
+    });
     
-    if (matchArt) {
-      const numArt = matchArt[1];
+    const clasifData = await groqClasif.json();
+    let clasificacion = null;
+    try {
+      clasificacion = JSON.parse(clasifData.choices[0].message.content);
+    } catch(e) {
+      console.log("Error parseando clasificación");
+    }
+    
+    if (clasificacion && clasificacion.ley_id && clasificacion.ley_id !== 0) {
+      console.log(`🎯 Clasificado: ley ${clasificacion.ley_id}, art. ${clasificacion.articulo}`);
+      
       const { data } = await supabase
         .from("articulos")
         .select(`id, numero_articulo, contenido, ley_id, leyes (nombre)`)
-        .eq("numero_articulo", numArt)
-        .limit(5);
+        .eq("ley_id", clasificacion.ley_id)
+        .eq("numero_articulo", clasificacion.articulo)
+        .limit(1);
       
       if (data && data.length > 0) {
-        const articulos = data.map(a => ({ ...a, nombre_ley: a.leyes?.nombre || "Ley" }));
-        const contexto = articulos.map(a => `📜 ${a.nombre_ley}\nArtículo ${a.numero_articulo}: ${a.contenido.substring(0, 800)}`).join('\n');
+        const art = data[0];
+        const nombreLey = art.leyes?.nombre || "Ley venezolana";
         
-        const prompt = `Eres LexnaVe, abogada venezolana. Responde SOLO con el texto del artículo.\n\n${contexto}\n\nPregunta: "${pregunta}"`;
-        
-        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        const respuestaPrompt = `Eres LexnaVe, abogada venezolana experta. Responde basándote ÚNICAMENTE en este artículo.
+
+ARTÍCULO:
+${nombreLey}
+Artículo ${art.numero_articulo}: ${art.contenido}
+
+PREGUNTA DEL USUARIO: "${pregunta}"
+
+INSTRUCCIONES:
+1. Explica qué dice el artículo de forma clara y sencilla.
+2. Aplica el artículo al caso concreto del usuario.
+3. Da pasos prácticos que pueda seguir.
+4. Usa lenguaje sencillo, como si le hablaras a un amigo.
+5. Incluye al final: "⚖️ Esto es una guía informativa. Consulta con un abogado."
+
+RESPUESTA:`;
+
+        const groqResp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
-          body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: prompt }], temperature: 0.1 })
+          body: JSON.stringify({
+            model: "llama-3.3-70b-versatile",
+            messages: [{ role: "user", content: respuestaPrompt }],
+            temperature: 0.2
+          })
         });
-        const groqData = await groqRes.json();
-        const respuesta = groqData.choices?.[0]?.message?.content || "Artículo encontrado pero error al procesar.";
+        
+        const respData = await groqResp.json();
+        let respuesta = respData.choices?.[0]?.message?.content || "Error al generar respuesta.";
+        respuesta += `\n\n📚 **Normas consultadas:**\n• ${nombreLey} Art. ${art.numero_articulo}`;
+        respuesta += "\n\n---\n⚖️ **Aviso Legal**: Orientación general. Consulta con un abogado.";
         
         return res.json({ respuesta });
       }
     }
     
-    // Búsqueda normal con ILIKE (fallback)
-    const expandida = expandirPregunta(pregunta);
-    const palabras = expandida.split(/\s+/).filter(p => p.length > 3).slice(0, 8);
-    
-    if (palabras.length === 0) {
-      return res.json({ respuesta: "No entendí tu consulta. Intenta ser más específico." });
-    }
-    
-    // Construir query OR con ilike
-    let query = supabase.from("articulos").select(`id, numero_articulo, contenido, ley_id, leyes (nombre)`);
-    for (const p of palabras) {
-      query = query.or(`contenido.ilike.%${p}%`);
-    }
-    const { data } = await query.limit(10);
-    
-    if (!data || data.length === 0) {
-      return res.json({ respuesta: "No encontré artículos relacionados. Intenta con palabras más técnicas como 'accidente de tránsito', 'responsabilidad civil', 'daños y perjuicios'." });
-    }
-    
-    const articulos = data.map(a => ({ ...a, nombre_ley: a.leyes?.nombre || "Ley" }));
-    const contexto = articulos.map(a => `📜 ${a.nombre_ley}\nArtículo ${a.numero_articulo}: ${a.contenido.substring(0, 800)}`).join('\n');
-    
-    const prompt = `Eres LexnaVe, abogada venezolana. Responde basándote ESTRICTAMENTE en los artículos.\n\n${contexto}\n\nPregunta: "${pregunta}"\n\nInstrucciones: Cita los artículos. Da pasos prácticos. Incluye aviso legal.`;
-    
-    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: prompt }], temperature: 0.2 })
-    });
-    const groqData = await groqRes.json();
-    let respuesta = groqData.choices?.[0]?.message?.content || "Error al generar respuesta.";
-    
-    const fuentes = [...new Set(articulos.map(a => `${a.leyes?.nombre || "Ley"} Art. ${a.numero_articulo}`))];
-    respuesta += "\n\n📚 **Normas consultadas:**\n" + fuentes.map(f => `• ${f}`).join("\n");
-    respuesta += "\n\n---\n⚖️ **Aviso Legal**: Orientación general. Consulta con un abogado.\n🆘 Emergencias: Defensoría del Pueblo (0800-333-3637).";
-    
-    res.json({ respuesta });
+    // Si no se pudo clasificar
+    res.json({ respuesta: "No entendí bien tu consulta. Puedes preguntar por un artículo específico (ej: 'artículo 1185 del código civil') o describir tu caso con palabras como 'accidente', 'divorcio', 'contrato'." });
     
   } catch (error) {
-    console.error("Error:", error);
+    console.error("❌ Error:", error);
     res.status(500).json({ respuesta: "Error técnico. Intenta nuevamente." });
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 Backend activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe Backend v9.0 activo en puerto ${PORT}`));
