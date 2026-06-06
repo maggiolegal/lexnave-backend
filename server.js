@@ -26,7 +26,7 @@ const MAPEO_LEYES = {
 };
 
 app.get('/', (req, res) => {
-  res.json({ message: 'LexnaVe Backend v14.0 - Con detección de artículos', status: 'ok' });
+  res.json({ message: 'LexnaVe Backend v15.0 - Traductor + buscador exacto', status: 'ok' });
 });
 
 app.post('/api/consultar', async (req, res) => {
@@ -34,141 +34,146 @@ app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     console.log("📨 Pregunta:", pregunta);
     
-    // 1. Detectar si es un artículo específico (ej: "artículo 640", "artículo 640 del CPC")
-    const regexArt = /art[íi]culo\s+(\d+)(?:\s+(?:del|de la|de)\s+([a-záéíóúñ\s]+))?/i;
-    const matchArt = pregunta.match(regexArt);
+    // ============================================================
+    // PASO 1: Groq traduce y sugiere artículos exactos
+    // ============================================================
+    const traductorPrompt = `Eres un traductor legal venezolano. Analiza la pregunta y devuelve SOLO JSON.
+
+PREGUNTA: "${pregunta}"
+
+RESPONDE CON ESTE FORMATO JSON:
+{
+  "terminos_busqueda": "palabras clave para buscar en leyes",
+  "ley_sugerida": "nombre de la ley (vacío si no sabes)",
+  "articulo_sugerido": "número de artículo (vacío si no sabes)"
+}
+
+REGLAS:
+- Si la pregunta habla de compra/venta de casa → ley_sugerida: "codigo civil", articulo_sugerido: "1480"
+- Si habla de choque/accidente de carro → ley_sugerida: "codigo civil", articulo_sugerido: "1185"
+- Si habla de divorcio → ley_sugerida: "codigo civil", articulo_sugerido: "185"
+- Si habla de letra de cambio → ley_sugerida: "codigo de comercio", articulo_sugerido: "410"
+- Si habla de citación/juicio → ley_sugerida: "codigo de procedimiento civil", articulo_sugerido: ""
+- Traduce palabras comunes a términos jurídicos en "terminos_busqueda"
+
+RESPUESTA (SOLO JSON):`;
+
+    const groqTraductor = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: traductorPrompt }],
+        temperature: 0.1
+      })
+    });
     
-    if (matchArt) {
-      const numArt = matchArt[1];
+    const traductorData = await groqTraductor.json();
+    let traduccion = null;
+    try {
+      traduccion = JSON.parse(traductorData.choices[0].message.content);
+      console.log("📝 Traducción:", traduccion);
+    } catch(e) {
+      console.log("Error parseando traducción");
+      traduccion = { terminos_busqueda: pregunta, ley_sugerida: "", articulo_sugerido: "" };
+    }
+    
+    // ============================================================
+    // PASO 2: Buscar artículos en Supabase
+    // ============================================================
+    let articulosEncontrados = [];
+    
+    // 2a. Si sugirió un artículo exacto, buscarlo primero
+    if (traduccion.articulo_sugerido && traduccion.articulo_sugerido !== "") {
       let leyId = null;
-      
-      // Si especificó una ley
-      if (matchArt[2]) {
-        const leyNombre = matchArt[2].toLowerCase().trim();
+      if (traduccion.ley_sugerida && traduccion.ley_sugerida !== "") {
         for (const [key, id] of Object.entries(MAPEO_LEYES)) {
-          if (leyNombre.includes(key)) {
+          if (traduccion.ley_sugerida.toLowerCase().includes(key)) {
             leyId = id;
             break;
           }
         }
       }
       
-      // Buscar el artículo
       let query = supabase
         .from("articulos")
         .select(`id, numero_articulo, contenido, ley_id, leyes (nombre)`)
-        .eq("numero_articulo", numArt);
+        .eq("numero_articulo", traduccion.articulo_sugerido);
       
       if (leyId) {
         query = query.eq("ley_id", leyId);
       }
       
-      const { data } = await query.limit(3);
-      
+      const { data } = await query.limit(5);
       if (data && data.length > 0) {
-        const art = data[0];
-        const nombreLey = art.leyes?.nombre || "Ley venezolana";
-        
-        const respuestaPrompt = `Eres LexnaVe, abogada venezolana. Responde basándote ÚNICAMENTE en este artículo.
-
-ARTÍCULO:
-${nombreLey}
-Artículo ${art.numero_articulo}: ${art.contenido}
-
-PREGUNTA: "${pregunta}"
-
-RESPUESTA: Explica qué dice el artículo, aplícalo al caso, da pasos prácticos.`;
-
-        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
-          body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: respuestaPrompt }], temperature: 0.2 })
-        });
-        
-        const groqData = await groqRes.json();
-        let respuesta = groqData.choices?.[0]?.message?.content || "Error al generar respuesta.";
-        respuesta += `\n\n📚 **Normas consultadas:**\n• ${nombreLey} Art. ${art.numero_articulo}`;
-        respuesta += "\n\n---\n⚖️ **Aviso Legal**: Orientación general. Consulta con un abogado.";
-        
-        return res.json({ respuesta });
+        articulosEncontrados = data;
+        console.log(`✅ Artículo exacto encontrado: ${traduccion.articulo_sugerido}`);
       }
     }
     
-    // 2. Si no es artículo específico, traducir y buscar por palabras clave
-    const traductorPrompt = `Eres un traductor legal venezolano. Convierte la pregunta a términos jurídicos.
-
-PREGUNTA: "${pregunta}"
-
-INSTRUCCIONES:
-- Analiza el SIGNIFICADO.
-- Traduce palabras cotidianas a su equivalente legal.
-- No uses reglas fijas. Interpreta libremente.
-- Devuelve SOLO la frase traducida.
-
-RESPUESTA:`;
-
-    const groqTraductor = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: traductorPrompt }], temperature: 0.1 })
-    });
-    
-    const traductorData = await groqTraductor.json();
-    let preguntaTraducida = traductorData.choices?.[0]?.message?.content || pregunta;
-    console.log("📝 Traducida:", preguntaTraducida);
-    
-    // Extraer palabras clave
-    const stopWords = ["que", "como", "para", "por", "con", "sin", "una", "me", "te", "le", "lo", "la", "el", "los", "las", "mi", "tu", "su", "y", "o", "pero", "mas", "a", "ante", "bajo", "cabe", "contra", "de", "desde", "durante", "en", "entre", "hacia", "hasta", "mediante", "segun", "so", "sobre", "tras", "versus", "via", "dice", "dijo", "hace", "hizo", "puede", "debe", "hago", "hacen", "hacer", "quiere", "quiero", "tiene", "tener", "sea", "ser", "esta", "este", "esto", "estos", "estas", "esa", "ese", "eso", "esos", "esas"];
-    
-    let palabras = preguntaTraducida.toLowerCase()
-      .replace(/[¿?¡!.,;:()]/g, '')
-      .split(/\s+/)
-      .filter(p => p.length > 3 && !stopWords.includes(p))
-      .slice(0, 10);
-    
-    if (palabras.length === 0) {
-      palabras = ["ley", "derecho"];
+    // 2b. Si no se encontró artículo exacto, buscar por términos
+    if (articulosEncontrados.length === 0 && traduccion.terminos_busqueda) {
+      const terminos = traduccion.terminos_busqueda.toLowerCase().split(/\s+/).filter(p => p.length > 3).slice(0, 8);
+      console.log("🔑 Buscando por términos:", terminos);
+      
+      let query = supabase.from("articulos").select(`id, numero_articulo, contenido, ley_id, leyes (nombre)`);
+      for (const term of terminos) {
+        query = query.or(`contenido.ilike.%${term}%`);
+      }
+      
+      const { data } = await query.limit(10);
+      if (data && data.length > 0) {
+        articulosEncontrados = data;
+        console.log(`📚 Encontrados ${data.length} artículos por términos`);
+      }
     }
     
-    console.log("🔑 Palabras:", palabras);
-    
-    // Buscar en Supabase
-    let query = supabase.from("articulos").select(`id, numero_articulo, contenido, ley_id, leyes (nombre)`);
-    for (const p of palabras) {
-      query = query.or(`contenido.ilike.%${p}%`);
+    if (articulosEncontrados.length === 0) {
+      return res.json({ respuesta: "No encontré artículos relacionados con tu consulta. Intenta con otras palabras o pregunta por un artículo específico (ej: 'artículo 1480 del código civil')." });
     }
     
-    const { data: articulosEncontrados } = await query.limit(10);
+    // ============================================================
+    // PASO 3: Groq redacta respuesta basada en los artículos
+    // ============================================================
+    const articulos = articulosEncontrados.slice(0, 6).map(a => ({
+      ...a,
+      nombre_ley: a.leyes?.nombre || "Ley venezolana"
+    }));
     
-    if (!articulosEncontrados || articulosEncontrados.length === 0) {
-      return res.json({ respuesta: "No encontré artículos relacionados. Intenta con otras palabras o pregunta por un artículo específico (ej: 'artículo 640 del CPC')." });
-    }
-    
-    // Generar respuesta
-    const articulos = articulosEncontrados.slice(0, 6).map(a => ({ ...a, nombre_ley: a.leyes?.nombre || "Ley" }));
     let contexto = "";
     articulos.forEach((art, idx) => {
       contexto += `\n[${idx + 1}] ${art.nombre_ley}\nArtículo ${art.numero_articulo}: ${art.contenido.substring(0, 800)}\n`;
     });
     
-    const promptRespuesta = `Eres LexnaVe, abogada venezolana. Responde basándote en estos artículos.
+    const promptRespuesta = `Eres LexnaVe, una abogada venezolana experta. Responde basándote ESTRICTAMENTE en los artículos proporcionados.
 
-PREGUNTA: "${pregunta}"
-TRADUCIDA: "${preguntaTraducida}"
+PREGUNTA DEL USUARIO: "${pregunta}"
 
-ARTÍCULOS:
+ARTÍCULOS ENCONTRADOS (ÚNICA FUENTE VÁLIDA):
 ${contexto}
 
-RESPUESTA: Responde directamente, cita los artículos, da pasos prácticos, lenguaje claro.`;
+INSTRUCCIONES:
+1. Responde directamente a la pregunta del usuario.
+2. Cita los artículos que uses (número y ley).
+3. Da pasos prácticos que el usuario pueda seguir.
+4. Usa lenguaje claro y amigable (como si hablaras con un amigo).
+5. Incluye al final: "⚖️ Esto es una guía informativa. Consulta con un abogado."
 
-    const groqResp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+RESPUESTA:`;
+
+    const groqRespuesta = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: promptRespuesta }], temperature: 0.2 })
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: promptRespuesta }],
+        temperature: 0.2,
+        max_tokens: 1000
+      })
     });
     
-    const respData = await groqResp.json();
-    let respuesta = respData.choices?.[0]?.message?.content || "Error.";
+    const respuestaData = await groqRespuesta.json();
+    let respuesta = respuestaData.choices?.[0]?.message?.content || "Error al generar respuesta.";
     
     const fuentes = [...new Set(articulos.map(a => `${a.nombre_ley} Art. ${a.numero_articulo}`))];
     respuesta += "\n\n📚 **Normas consultadas:**\n" + fuentes.map(f => `• ${f}`).join("\n");
@@ -182,4 +187,4 @@ RESPUESTA: Responde directamente, cita los artículos, da pasos prácticos, leng
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 LexnaVe Backend v14.0 activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe Backend v15.0 activo en puerto ${PORT}`));
