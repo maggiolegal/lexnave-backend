@@ -2,9 +2,9 @@
   "name": "lexnave-backend",
   "version": "20.0.0",
   "type": "module",
-  "main": "server.js",
+  "main": "llenar_embeddings.js", 
   "scripts": {
-    "start": "node llenar_embeddings.js" 
+    "start": "node ."
   },
   "engines": {
     "node": "20.x"
