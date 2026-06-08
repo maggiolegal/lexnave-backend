@@ -1,6 +1,12 @@
 import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
+import { pipeline, env } from '@xenova/transformers';
+import ws from 'ws';
+
+// Configuración para entorno servidor
+env.allowLocalModels = false; 
+env.useBrowserCache = false;
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -12,107 +18,98 @@ const SUPABASE_URL = process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.s
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+if (!SUPABASE_KEY || !GROQ_API_KEY) {
+  console.error("❌ Faltan variables de entorno");
+  process.exit(1);
+}
+
+// Configuración de Supabase con soporte WebSocket para Node 20
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  global: { fetch: (...args) => fetch(...args) },
+  realtime: { transport: ws }
+});
+
+let extractor = null;
+
+async function getExtractor() {
+  if (!extractor) {
+    console.log("🧠 Cargando modelo semántico (solo la primera vez)...");
+    extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    console.log("✅ Modelo listo.");
+  }
+  return extractor;
+}
 
 app.get('/', (req, res) => {
-  res.json({ message: 'LexnaVe Backend v9.0', status: 'ok' });
+  res.json({ message: 'LexnaVe v20.0 - Semantic Search Active' });
 });
 
 app.post('/api/consultar', async (req, res) => {
   try {
     const { pregunta } = req.body;
     console.log("📨 Pregunta:", pregunta);
+
+    // 1. Generar Embedding (Vector de significado)
+    const currentExtractor = await getExtractor();
+    const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
+    const queryEmbedding = Array.from(output.data);
+
+    // 2. Búsqueda Semántica en Supabase
+    const { data: articulos, error } = await supabase.rpc('match_articulos', {
+      query_embedding: queryEmbedding,
+      match_threshold: 0.65,
+      match_count: 5
+    });
+
+    if (error) throw error;
+
+    if (!articulos || articulos.length === 0) {
+      return res.json({ respuesta: "No encontré normas relacionadas en la base de datos cargada." });
+    }
+
+    // 3. Construir Contexto
+    let contexto = "";
+    articulos.forEach((art, idx) => {
+      contexto += `\n[${idx + 1}] ${art.leyes?.nombre || 'Ley'} - Art. ${art.numero_articulo}\n"${art.contenido}"\n`;
+    });
+
+    // 4. Generar Respuesta con Groq
+    const prompt = `Eres LexnaVe, experta en derecho venezolano.
     
-    // PASO 1: Groq clasifica la pregunta y determina qué buscar
-    const clasificacionPrompt = `Eres un clasificador legal. Analiza la pregunta y responde SOLO con JSON.
+    PREGUNTA: "${pregunta}"
+    
+    ARTÍCULOS ENCONTRADOS:
+    ${contexto}
 
-PREGUNTA: "${pregunta}"
+    INSTRUCCIONES:
+    1. Responde basándote ÚNICAMENTE en los artículos de arriba.
+    2. Explica el concepto legal de forma sencilla.
+    3. Cita la ley y el artículo.
+    
+    RESPUESTA:`;
 
-RESPONDE CON: {"ley_id": número, "articulo": "número", "justificacion": "breve"}
-
-REGLAS:
-- Si habla de choque, accidente, carro, golpe, daño a propiedad → ley_id:3, articulo:1185
-- Si habla de pegar, golpear, agredir, violencia física → ley_id:6, articulo:413
-- Si habla de divorcio, separación → ley_id:3, articulo:185
-- Si habla de contrato, compra venta, incumplimiento → ley_id:3, articulo:1480
-- Si habla de letra de cambio → ley_id:4, articulo:410
-- Si no sabes → ley_id:0, articulo:0`;
-
-    const groqClasif = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`
+      },
       body: JSON.stringify({
         model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: clasificacionPrompt }],
-        temperature: 0.1
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2
       })
     });
-    
-    const clasifData = await groqClasif.json();
-    let clasificacion = null;
-    try {
-      clasificacion = JSON.parse(clasifData.choices[0].message.content);
-    } catch(e) {
-      console.log("Error parseando clasificación");
-    }
-    
-    if (clasificacion && clasificacion.ley_id && clasificacion.ley_id !== 0) {
-      console.log(`🎯 Clasificado: ley ${clasificacion.ley_id}, art. ${clasificacion.articulo}`);
-      
-      const { data } = await supabase
-        .from("articulos")
-        .select(`id, numero_articulo, contenido, ley_id, leyes (nombre)`)
-        .eq("ley_id", clasificacion.ley_id)
-        .eq("numero_articulo", clasificacion.articulo)
-        .limit(1);
-      
-      if (data && data.length > 0) {
-        const art = data[0];
-        const nombreLey = art.leyes?.nombre || "Ley venezolana";
-        
-        const respuestaPrompt = `Eres LexnaVe, abogada venezolana experta. Responde basándote ÚNICAMENTE en este artículo.
 
-ARTÍCULO:
-${nombreLey}
-Artículo ${art.numero_articulo}: ${art.contenido}
+    const groqData = await groqRes.json();
+    const respuestaIA = groqData.choices?.[0]?.message?.content;
 
-PREGUNTA DEL USUARIO: "${pregunta}"
+    res.json({ respuesta: respuestaIA, articulos });
 
-INSTRUCCIONES:
-1. Explica qué dice el artículo de forma clara y sencilla.
-2. Aplica el artículo al caso concreto del usuario.
-3. Da pasos prácticos que pueda seguir.
-4. Usa lenguaje sencillo, como si le hablaras a un amigo.
-5. Incluye al final: "⚖️ Esto es una guía informativa. Consulta con un abogado."
-
-RESPUESTA:`;
-
-        const groqResp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${GROQ_API_KEY}` },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            messages: [{ role: "user", content: respuestaPrompt }],
-            temperature: 0.2
-          })
-        });
-        
-        const respData = await groqResp.json();
-        let respuesta = respData.choices?.[0]?.message?.content || "Error al generar respuesta.";
-        respuesta += `\n\n📚 **Normas consultadas:**\n• ${nombreLey} Art. ${art.numero_articulo}`;
-        respuesta += "\n\n---\n⚖️ **Aviso Legal**: Orientación general. Consulta con un abogado.";
-        
-        return res.json({ respuesta });
-      }
-    }
-    
-    // Si no se pudo clasificar
-    res.json({ respuesta: "No entendí bien tu consulta. Puedes preguntar por un artículo específico (ej: 'artículo 1185 del código civil') o describir tu caso con palabras como 'accidente', 'divorcio', 'contrato'." });
-    
   } catch (error) {
-    console.error("❌ Error:", error);
-    res.status(500).json({ respuesta: "Error técnico. Intenta nuevamente." });
+    console.error("❌ Error Crítico:", error);
+    res.status(500).json({ respuesta: "Error técnico en el servidor." });
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 LexnaVe Backend v9.0 activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v20.0 en puerto ${PORT}`));
