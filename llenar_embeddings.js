@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { pipeline } from '@xenova/transformers';
-
+console.log("🚀 INICIANDO PROCESO DE LLENADO DE EMBEDDINGS - VERSIÓN 2");
 // Configuración
 const SUPABASE_URL = "https://dhcacnfuummsgpxujpjz.supabase.co";
-const SUPABASE_KEY = "TU_CLAVE_SUPABASE_AQUI"; // <--- PEGA TU CLAVE AQUÍ
+const SUPABASE_KEY = "sb_publishable_pIYUap3GDuL7xqwP0CCCWA_WrUPp1aN"; // <--- PEGA TU CLAVE AQUÍ
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
