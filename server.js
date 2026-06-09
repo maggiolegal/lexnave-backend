@@ -1,11 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
 import { pipeline } from '@xenova/transformers';
-console.log("🚀 INICIANDO PROCESO DE LLENADO DE EMBEDDINGS - VERSIÓN 2");
+import ws from 'ws'; // <--- IMPORTANTE: Importar ws para Node 20
+
+console.log("🚀 INICIANDO PROCESO DE LLENADO DE EMBEDDINGS - VERSIÓN 3");
+
 // Configuración
 const SUPABASE_URL = "https://dhcacnfuummsgpxujpjz.supabase.co";
-const SUPABASE_KEY = "sb_publishable_pIYUap3GDuL7xqwP0CCCWA_WrUPp1aN"; // <--- PEGA TU CLAVE AQUÍ
+const SUPABASE_KEY = "sb_publishable_pIYUap3GDuL7xqwP0CCCWA_WrUPp1aN"; 
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+// Configuración de Supabase con soporte WebSocket para Node 20
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  realtime: {
+    transport: ws
+  }
+});
 
 async function generarYGuardarEmbeddings() {
   console.log("🧠 Cargando modelo local...");
