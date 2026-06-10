@@ -27,21 +27,21 @@ async function getExtractor() {
   return extractor;
 }
 
-// Traductor Cognitivo Puro (Sin diccionarios)
+// Traductor por Abstracción Dogmática Universal
 async function traducirATerminosJuridicos(preguntaColoquial) {
-  const prompt = `Eres un experto en derecho venezolano. Tu ÚNICA tarea es traducir problemas humanos a FIGURAS JURÍDICAS ABSTRACTAS para búsqueda semántica.
+  const prompt = `Eres un experto en derecho venezolano. Tu ÚNICA tarea es traducir problemas humanos a CATEGORÍAS JURÍDICAS DOGMÁTICAS ESPECÍFICAS.
 
 REGLAS ABSOLUTAS:
 1. SI EL USUARIO MENCIONA UN ARTÍCULO EXPLÍCITO: Devuélvelo como primer término (ej: articulo_410_codigo_comercio).
-2. SI NO MENCIONA ARTÍCULOS: ESTÁ PROHIBIDO INVENTAR NÚMEROS. Identifica SOLO la figura jurídica venezolana aplicable.
-3. Usa terminología técnica precisa del derecho venezolano.
+2. SI NO MENCIONA ARTÍCULOS: Identifica LA ETIQUETA DOCTRINARIA MÁS PRECISA Y TÉCNICA aplicable al caso.
+3. PROHIBIDO TERMINOLOGÍA GENÉRICA: Nunca uses "daños", "responsabilidad", "incumplimiento" o "delito" solos. Usa SIEMPRE la figura dogmática completa (ej: responsabilidad_civil_extracontractual, nulidad_relativa, prescripción_adquisitiva, tipo_penal_doloso).
 4. Formato estricto: solo términos separados por comas, sin markdown ni explicaciones.
 
-EJEMPLOS:
+EJEMPLOS DE ABSTRACCIÓN CORRECTA:
 Input: "me chocaron el carro y no paga" → Output: responsabilidad_civil_extracontractual, obligacion_de_reparar_danos, culpa_o_negligencia
-Input: "que dice el articulo 1185 del codigo civil" → Output: articulo_1185_codigo_civil
-Input: "juicio oral en materia civil" → Output: procedimiento_ordinario_civil, promocion_pruebas, oralidad_procesal
-Input: "me detuvieron sin orden judicial" → Output: garantias_constitucionales_penales, amparo_constitucional, libertad_personal
+Input: "mi jefe me botó sin pagar prestaciones" → Output: despido_injustificado, prestaciones_sociales_lottt, indemnizacion_sustitutiva
+Input: "firmé un contrato bajo amenaza" → Output: vicio_consentimiento_violencia, nulidad_relativa_contrato, codigo_civil
+Input: "me detuvieron sin orden judicial" → Output: garantia_constitucional_libertad_personal, amparo_constitucional, copp_articulo_128
 
 INPUT ACTUAL: "${preguntaColoquial}"
 OUTPUT:`;
@@ -124,9 +124,9 @@ app.post('/api/consultar', async (req, res) => {
       }
     }
 
-    // Fallback Semántico Puro (Sin expansiones manuales)
+    // Fallback Semántico con Umbral Seguro (0.15)
     if (articulos.length === 0) {
-      console.log(" Búsqueda semántica pura...");
+      console.log(" Búsqueda semántica pura (umbral 0.15)...");
       const terminosLimpios = terminosArray.filter(t => !/^articulo_\d+_.+$/.test(t)).join(', ');
       
       const currentExtractor = await getExtractor();
@@ -134,7 +134,7 @@ app.post('/api/consultar', async (req, res) => {
       const queryEmbedding = Array.from(output.data);
 
       const { data, error } = await supabase.rpc('match_articulos', {
-        query_embedding: queryEmbedding, match_threshold: 0.05, match_count: 5
+        query_embedding: queryEmbedding, match_threshold: 0.15, match_count: 5
       });
       if (!error && data) articulos = data;
     }
@@ -147,7 +147,7 @@ app.post('/api/consultar', async (req, res) => {
       ? `\nHISTORIAL RECIENTE:\n${historial.map(h => `${h.role}: ${h.content}`).join('\n')}`
       : "";
 
-    // Prompt Final Con Citación Forzada Y Empatía Estructural
+    // Prompt Final Con Regla de Rechazo y Citación Forzada
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática. Tienes memoria de esta conversación.
 
 ARTÍCULOS LEGALES RECUPERADOS DE LA BASE DE DATOS:
@@ -160,10 +160,11 @@ PREGUNTA DEL USUARIO: "${pregunta}"
 
 INSTRUCCIONES OBLIGATORIAS DE RESPUESTA:
 1. EMPATÍA ESTRUCTURAL: Si el usuario expone un problema personal, inicia SIEMPRE con "Lamento el incidente por el que estás pasando..." o "Entiendo tu preocupación...".
-2. CITACIÓN FORZADA: SI LOS ARTÍCULOS RECUPERADOS SON RELEVANTES, DEBES CITAR AL MENOS UNO TEXTUALMENTE usando este formato exacto: "El artículo [NÚMERO] del [LEY] establece que [CONTENIDO TEXTUAL]". La cita debe ser la base de tu respuesta.
-3. EXPLICACIÓN APLICADA: Después de citar, explica brevemente cómo aplica al caso en lenguaje claro y accesible.
-4. SIN ARTÍCULOS RELEVANTES: Si el contexto dice "No se encontraron...", inicia con "⚠️ Nota: No se encontraron artículos específicos en la base cargada..." y responde con conocimiento general venezolano, pero ACLARA que no hay fundamento en la base verificada.
-5. CIERRE ÉTICO OBLIGATORIO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."
+2. REGLA DE RECHAZO: Analiza los artículos recuperados. SI NO GUARDAN RELACIÓN LÓGICA CON LA PREGUNTA (ej: citas de mandato en un accidente de tránsito), IGNÓRALOS COMPLETAMENTE y declara que no hay fundamentos en la base cargada. NUNCA fuerces una cita irrelevante.
+3. CITACIÓN FORZADA: SOLO SI LOS ARTÍCULOS SON RELEVANTES, DEBES CITAR AL MENOS UNO TEXTUALMENTE usando este formato exacto: "El artículo [NÚMERO] del [LEY] establece que [CONTENIDO TEXTUAL]". La cita debe ser la base de tu respuesta.
+4. EXPLICACIÓN APLICADA: Después de citar, explica brevemente cómo aplica al caso en lenguaje claro y accesible.
+5. SIN ARTÍCULOS RELEVANTES: Inicia con "⚠️ Nota: No se encontraron artículos específicos en la base cargada..." y responde con conocimiento general venezolano, ACLARANDO que no hay fundamento verificado.
+6. CIERRE ÉTICO OBLIGATORIO: Termina siempre con "️ Esto es orientación general. Consulta con un abogado."
 
 Usa el historial para mantener coherencia conversacional.`;
 
