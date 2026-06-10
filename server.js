@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { pipeline, env } from '@xenova/transformers';
+import ws from 'ws'; // ✅ Importación obligatoria para Node.js 20
 
 env.allowLocalModels = false; 
 env.useBrowserCache = false;
@@ -10,13 +11,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Cliente Supabase SIN Realtime (Compatible con Node.js 20)
+// Cliente Supabase con transporte WebSocket explícito para Node.js 20
 const supabase = createClient(
   process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co",
   process.env.SUPABASE_KEY,
   {
     auth: { persistSession: false },
-    realtime: { autoReconnect: false } // Desactiva WebSocket innecesario
+    realtime: {
+      autoReconnect: false, // Desactivamos reconexión innecesaria
+      transport: ws         // ✅ Inyectamos el constructor de WebSocket
+    }
   }
 );
 
@@ -81,7 +85,7 @@ async function obtenerMemoria(sessionId) {
 async function guardarMensaje(sessionId, role, content) {
   if (!sessionId) return;
   await supabase.from('chat_history').insert({ session_id: sessionId, role, content }).then(({ error }) => {
-    if (error) console.error("❌ Error guardando mensaje:", error);
+    if (error) console.error(" Error guardando mensaje:", error);
   });
 }
 
@@ -166,7 +170,7 @@ INSTRUCCIONES OBLIGATORIAS DE RESPUESTA:
 2. REGLA DE RECHAZO: Analiza los artículos recuperados. SI NO GUARDAN RELACIÓN LÓGICA CON LA PREGUNTA (ej: citas de mandato en un accidente de tránsito), IGNÓRALOS COMPLETAMENTE y declara que no hay fundamentos en la base cargada. NUNCA fuerces una cita irrelevante.
 3. CITACIÓN FORZADA: SOLO SI LOS ARTÍCULOS SON RELEVANTES, DEBES CITAR AL MENOS UNO TEXTUALMENTE usando este formato exacto: "El artículo [NÚMERO] del [LEY] establece que [CONTENIDO TEXTUAL]". La cita debe ser la base de tu respuesta.
 4. EXPLICACIÓN APLICADA: Después de citar, explica brevemente cómo aplica al caso en lenguaje claro y accesible.
-5. SIN ARTÍCULOS RELEVANTES: Inicia con "⚠️ Nota: No se encontraron artículos específicos en la base cargada..." y responde con conocimiento general venezolano, ACLARANDO que no hay fundamento verificado.
+5. SIN ARTÍCULOS RELEVANTES: Inicia con "️ Nota: No se encontraron artículos específicos en la base cargada..." y responde con conocimiento general venezolano, ACLARANDO que no hay fundamento verificado.
 6. CIERRE ÉTICO OBLIGATORIO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."
 
 Usa el historial para mantener coherencia conversacional.`;
@@ -188,7 +192,7 @@ Usa el historial para mantener coherencia conversacional.`;
     res.json({ respuesta });
 
   } catch (error) {
-    console.error("❌ Error crítico:", error);
+    console.error(" Error crítico:", error);
     res.status(500).json({ respuesta: "Error técnico. Intenta nuevamente." });
   }
 });
