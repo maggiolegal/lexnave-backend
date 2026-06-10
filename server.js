@@ -31,17 +31,23 @@ async function getExtractor() {
 app.post('/api/consultar', async (req, res) => {
   try {
     const { pregunta } = req.body;
-    console.log(" Pregunta:", pregunta);
+    console.log("📨 Pregunta:", pregunta);
     
     const currentExtractor = await getExtractor();
     const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
     const queryEmbedding = Array.from(output.data);
 
-    const { data: articulos } = await supabase.rpc('match_articulos', {
+    // CORRECCIÓN CLAVE: Threshold reducido a 0.3 para coincidir con la función RPC
+    const { data: articulos, error } = await supabase.rpc('match_articulos', {
       query_embedding: queryEmbedding,
-      match_threshold: 0.65,
+      match_threshold: 0.3, 
       match_count: 5
     });
+
+    if (error) {
+      console.error("❌ Error en RPC match_articulos:", error);
+      return res.status(500).json({ respuesta: "Error al buscar en la base legal." });
+    }
 
     if (!articulos?.length) {
       return res.json({ respuesta: "No encontré normas relacionadas en la base legal cargada." });
@@ -63,7 +69,7 @@ INSTRUCCIONES:
 2. Aplica la ley al caso concreto del usuario.
 3. Da pasos prácticos inmediatos.
 4. Usa lenguaje sencillo y empático.
-5. Incluye siempre: "️ Esto es orientación general. Consulta con un abogado."`;
+5. Incluye siempre: "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
