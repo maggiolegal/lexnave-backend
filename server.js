@@ -11,7 +11,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Usa SERVICE_ROLE KEY aquí para garantizar acceso total
 const supabase = createClient(
   process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co",
   process.env.SUPABASE_KEY,
@@ -21,31 +20,76 @@ const supabase = createClient(
 let extractor = null;
 async function getExtractor() {
   if (!extractor) {
-    console.log("🧠 Cargando modelo semántico...");
+    console.log(" Cargando modelo semántico...");
     extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
     console.log("✅ Modelo listo.");
   }
   return extractor;
 }
 
+// Función para traducir lenguaje coloquial a términos jurídicos
+async function traducirATerminosJuridicos(preguntaColoquial) {
+  const prompt = `Eres un experto en terminología jurídica venezolana. Tu ÚNICA tarea es convertir preguntas en lenguaje coloquial a 3-5 términos técnicos precisos para búsqueda legal.
+
+REGLAS ESTRICTAS:
+1. Devuelve SOLO los términos separados por comas.
+2. Sin explicaciones, sin saludos, sin formato markdown.
+3. Usa exclusivamente vocabulario del derecho civil, penal y laboral venezolano.
+4. Si la pregunta ya es técnica, devuélvela igual.
+
+EJEMPLOS:
+Input: "me chocaron el carro y se fugó" → Output: accidente tránsito terrestre, delito fuga conductor, responsabilidad civil extracontractual
+Input: "compré casa y no me la entregan" → Output: compraventa inmueble, incumplimiento contractual, entrega posesión bien raíz
+Input: "mi jefe no me paga" → Output: salario pendiente, lottt, despido injustificado
+
+INPUT ACTUAL: "${preguntaColoquial}"
+OUTPUT:`;
+
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant", // Modelo rápido y barato para traducción
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1
+      })
+    });
+    
+    const data = await res.json();
+    return data.choices[0].message.content.trim();
+  } catch (error) {
+    console.error("❌ Error en traducción jurídica:", error);
+    return preguntaColoquial; // Fallback: usa la pregunta original si falla
+  }
+}
+
 app.post('/api/consultar', async (req, res) => {
   try {
     const { pregunta } = req.body;
-    console.log("📨 Pregunta:", pregunta);
+    console.log("📨 Pregunta original:", pregunta);
     
+    // PASO 1: Traducir a términos jurídicos
+    const terminosTecnicos = await traducirATerminosJuridicos(pregunta);
+    console.log("⚖️ Términos técnicos generados:", terminosTecnicos);
+    
+    // PASO 2: Generar embedding de los TÉRMINOS TÉCNICOS (no de la pregunta original)
     const currentExtractor = await getExtractor();
-    const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
+    const output = await currentExtractor(terminosTecnicos, { pooling: 'mean', normalize: true });
     const queryEmbedding = Array.from(output.data);
 
-    // CORRECCIÓN CLAVE: Threshold reducido a 0.3 para coincidir con la función RPC
+    // PASO 3: Buscar en Supabase con el vector técnico
     const { data: articulos, error } = await supabase.rpc('match_articulos', {
       query_embedding: queryEmbedding,
-      match_threshold: 0.3, 
+      match_threshold: 0.2, // Umbral ajustado para términos técnicos
       match_count: 5
     });
 
     if (error) {
-      console.error("❌ Error en RPC match_articulos:", error);
+      console.error(" Error en RPC match_articulos:", error);
       return res.status(500).json({ respuesta: "Error al buscar en la base legal." });
     }
 
@@ -57,18 +101,19 @@ app.post('/api/consultar', async (req, res) => {
       `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`
     ).join('\n');
 
-    const prompt = `Eres LexnaVe, abogada venezolana experta. Responde SOLO basándote en estos artículos:
+    // PASO 4: Responder usando la pregunta ORIGINAL (coloquial) + artículos encontrados
+    const promptFinal = `Eres LexnaVe, abogada venezolana experta. Responde SOLO basándote en estos artículos:
 
 ARTÍCULOS:
 ${contexto}
 
-PREGUNTA: "${pregunta}"
+PREGUNTA DEL USUARIO: "${pregunta}"
 
 INSTRUCCIONES:
 1. Explica claramente qué dice la ley aplicable.
 2. Aplica la ley al caso concreto del usuario.
 3. Da pasos prácticos inmediatos.
-4. Usa lenguaje sencillo y empático.
+4. Usa lenguaje sencillo y empático (el usuario NO sabe de leyes).
 5. Incluye siempre: "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -78,8 +123,8 @@ INSTRUCCIONES:
         "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: prompt }],
+        model: "llama-3.3-70b-versatile", // Modelo potente para la respuesta final
+        messages: [{ role: "user", content: promptFinal }],
         temperature: 0.2
       })
     });
