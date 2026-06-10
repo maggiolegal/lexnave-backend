@@ -27,20 +27,25 @@ async function getExtractor() {
   return extractor;
 }
 
-// Traductor ANTI-ALUCINACIONES
+// Traductor de Intenciones Jurídicas (Anti-Alucinación + Figuras Puras)
 async function traducirATerminosJuridicos(preguntaColoquial) {
-  const prompt = `Eres un experto en terminología jurídica venezolana. Convierte preguntas coloquiales a términos técnicos para búsqueda legal.
+  const prompt = `Eres un experto en derecho venezolano. Tu tarea es traducir problemas reales a FIGURAS JURÍDICAS PURAS para búsqueda semántica.
 
-REGLAS CRÍTICAS:
-1. SOLO genera términos tipo "articulo_NUMERO_LEY" si estás 100% SEGURO de que ese artículo existe. Si dudas, NO lo incluyas.
-2. Para conceptos generales, devuelve 3-5 términos técnicos separados por comas.
-3. Usa nombres de ley estandarizados: constitucion, codigo_civil, codigo_comercio, lottt, coppp, codigo_penal, codigo_procedimiento_civil, propiedad_horizontal.
-4. Sin explicaciones ni markdown. Solo los términos.
+REGLAS DE ORO:
+1. SI EL USUARIO MENCIONA UN ARTÍCULO EXPLÍCITO: Devuélvelo como primer término (ej: articulo_410_codigo_comercio).
+2. SI NO MENCIONA ARTÍCULOS: ESTÁ PROHIBIDO INVENTAR NÚMEROS. Identifica SOLO las figuras jurídicas aplicables.
+3. Usa conceptos legales venezolanos precisos, no descripciones genéricas.
+4. Formato estricto: solo términos separados por comas, sin markdown ni explicaciones.
 
-EJEMPLOS:
-Input: "que dice el articulo 410 del codigo de comercio" → Output: articulo_410_codigo_comercio, obligaciones mercantiles
-Input: "me chocaron el carro" → Output: accidente tránsito terrestre, responsabilidad civil extracontractual
-Input: "seguridad de la nacion" → Output: seguridad nacional, defensa integral, constitución
+EJEMPLOS CORRECTOS:
+Input: "me chocaron el carro y no paga" 
+Output: responsabilidad_civil_extracontractual, obligacion_de_reparar_danos, culpa_o_negligencia
+
+Input: "que dice el articulo 1185 del codigo civil"
+Output: articulo_1185_codigo_civil, responsabilidad_aquiliana
+
+Input: "juicio oral en proceso penal"
+Output: juicio_oral, codigo_organico_procesal_penal, oralidad
 
 INPUT ACTUAL: "${preguntaColoquial}"
 OUTPUT:`;
@@ -49,12 +54,16 @@ OUTPUT:`;
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
-      body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.0 }) // Temperatura 0 para máxima precisión
+      body: JSON.stringify({ 
+        model: "llama-3.1-8b-instant", 
+        messages: [{ role: "user", content: prompt }], 
+        temperature: 0.0 // Temperatura cero para eliminar creatividad al generar términos
+      })
     });
     const data = await res.json();
     return data.choices[0].message.content.trim();
   } catch (error) {
-    console.error(" Error en traducción:", error);
+    console.error("❌ Error en traducción:", error);
     return preguntaColoquial;
   }
 }
@@ -87,7 +96,7 @@ app.post('/api/consultar', async (req, res) => {
     const historial = await obtenerMemoria(sessionId);
 
     const terminosTecnicos = await traducirATerminosJuridicos(pregunta);
-    console.log("⚖️ Términos:", terminosTecnicos);
+    console.log("⚖️ Términos generados:", terminosTecnicos);
 
     let articulos = [];
     let busquedaExactaFallida = false;
@@ -97,7 +106,7 @@ app.post('/api/consultar', async (req, res) => {
     const referenciaExacta = terminosArray.find(t => /^articulo_\d+_.+$/.test(t));
 
     if (referenciaExacta) {
-      console.log(" Detección de referencia exacta:", referenciaExacta);
+      console.log("🎯 Detección de referencia exacta:", referenciaExacta);
       const partes = referenciaExacta.split('_'); 
       const numArt = partes[1];
       const leyRef = partes.slice(2).join('_').toLowerCase();
@@ -109,7 +118,6 @@ app.post('/api/consultar', async (req, res) => {
         'codigo_procedimiento_civil': 7, 'lottt': 8 
       };
       
-      // Buscar coincidencia parcial en las claves del mapa
       const leyKey = Object.keys(mapLeyes).find(k => leyRef.includes(k) || k.includes(leyRef));
       const leyId = leyKey ? mapLeyes[leyKey] : null;
 
@@ -132,18 +140,16 @@ app.post('/api/consultar', async (req, res) => {
       }
     }
 
-    // Fallback semántico mejorado
+    // Fallback semántico mejorado (solo con figuras jurídicas puras)
     if (articulos.length === 0) {
-      console.log(" Búsqueda semántica fallback...");
-      // Filtrar términos falsos antes de generar embedding
-      const terminosLimpios = terminosArray.filter(t => !/^articulo_\d+_.+$/.test(t) || busquedaExactaFallida).join(', ');
+      console.log("🔍 Búsqueda semántica fallback...");
+      const terminosLimpios = terminosArray.filter(t => !/^articulo_\d+_.+$/.test(t)).join(', ');
       
       const currentExtractor = await getExtractor();
-      const output = await currentExtractor(terminosLimpios || pregunta, { pooling: 'mean', normalize: true });
-      const queryEmbedding = Array.from(output.data);
+      const queryEmbedding = Array.from((await currentExtractor(terminosLimpios || pregunta, { pooling: 'mean', normalize: true })).data);
 
       const { data, error } = await supabase.rpc('match_articulos', {
-        query_embedding: queryEmbedding, match_threshold: 0.05, match_count: 5 // Umbral ultra-bajo para recuperar algo
+        query_embedding: queryEmbedding, match_threshold: 0.05, match_count: 5
       });
       if (!error && data) articulos = data;
     }
@@ -156,23 +162,34 @@ app.post('/api/consultar', async (req, res) => {
       ? `\nHISTORIAL RECIENTE:\n${historial.map(h => `${h.role}: ${h.content}`).join('\n')}`
       : "";
 
-    const promptFinal = `Eres LexnaVe, abogada venezolana experta. Tienes memoria de esta conversación.
+    // Prompt Final con Empatía Jurídica y Citación Fundamentada
+    const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática. Tienes memoria de esta conversación.
 
-ARTÍCULOS LEGALES:
+ARTÍCULOS LEGALES RECUPERADOS:
 ${contextoArticulos}
+
+HISTORIAL RECIENTE:
 ${contextoHistorial}
 
-PREGUNTA ACTUAL: "${pregunta}"
+PREGUNTA DEL USUARIO: "${pregunta}"
 
-INSTRUCCIONES:
-Analiza los ARTÍCULOS proporcionados. Si son relevantes, úsalos como fuente principal CITANDO EL NÚMERO DE ARTÍCULO EXACTO. Si NO están relacionados o están vacíos, responde usando tu conocimiento jurídico venezolano general. En ese caso inicia con: '⚠️ Nota: No se encontraron artículos específicos en la base cargada, pero según la normativa vigente...'
+INSTRUCCIONES DE RESPUESTA:
+1. INICIO EMPÁTICO: Si el usuario expone un problema personal, inicia validando su situación ("Lamento el incidente...", "Entiendo tu preocupación...").
+2. CITACIÓN FUNDAMENTADA: Cita SIEMPRE el artículo exacto encontrado como base legal. Usa el formato: "el artículo [NÚMERO] del [LEY] establece que [CONTENIDO TEXTUAL O PARAFRASEO FIEL]".
+3. EXPLICACIÓN BREVE: Después de citar, da una explicación sintética de cómo aplica al caso o qué significa en lenguaje claro.
+4. SI NO HAY ARTÍCULOS RELEVANTES: Inicia con "⚠️ Nota: No se encontraron artículos específicos en la base cargada..." y responde con conocimiento general venezolano.
+5. CIERRA SIEMPRE CON: "️ Esto es orientación general. Consulta con un abogado."
 
-Usa el HISTORIAL para entender referencias contextuales. Responde en lenguaje sencillo, da pasos prácticos y termina siempre con: "⚖️ Esto es orientación general. Consulta con un abogado."`;
+Usa el historial para mantener coherencia conversacional.`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: promptFinal }], temperature: 0.2 })
+      body: JSON.stringify({ 
+        model: "llama-3.3-70b-versatile", 
+        messages: [{ role: "user", content: promptFinal }], 
+        temperature: 0.2 
+      })
     });
 
     const data = await groqRes.json();
