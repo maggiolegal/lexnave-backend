@@ -20,26 +20,27 @@ const supabase = createClient(
 let extractor = null;
 async function getExtractor() {
   if (!extractor) {
-    console.log(" Cargando modelo semántico...");
+    console.log("🧠 Cargando modelo semántico...");
     extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
     console.log("✅ Modelo listo.");
   }
   return extractor;
 }
 
-// Traductor con detección de referencias explícitas
+// Traductor ANTI-ALUCINACIONES
 async function traducirATerminosJuridicos(preguntaColoquial) {
   const prompt = `Eres un experto en terminología jurídica venezolana. Convierte preguntas coloquiales a términos técnicos para búsqueda legal.
 
-REGLAS:
-1. Si detectas "artículo [número] de [ley]", devuelve EXACTAMENTE: "articulo_[numero]_[ley_abreviada]" como PRIMER término.
+REGLAS CRÍTICAS:
+1. SOLO genera términos tipo "articulo_NUMERO_LEY" si estás 100% SEGURO de que ese artículo existe. Si dudas, NO lo incluyas.
 2. Para conceptos generales, devuelve 3-5 términos técnicos separados por comas.
-3. Sin explicaciones ni markdown. Solo los términos.
+3. Usa nombres de ley estandarizados: constitucion, codigo_civil, codigo_comercio, lottt, coppp, codigo_penal, codigo_procedimiento_civil, propiedad_horizontal.
+4. Sin explicaciones ni markdown. Solo los términos.
 
 EJEMPLOS:
-Input: "que dice el articulo 410 del codigo de comercio" → Output: articulo_410_codigo_comercio, obligaciones mercantiles, actos de comercio
-Input: "me chocaron el carro" → Output: accidente tránsito terrestre, responsabilidad civil extracontractual, ley de tránsito
-Input: "seguridad de la nacion" → Output: seguridad nacional, defensa integral, constitución república bolivariana
+Input: "que dice el articulo 410 del codigo de comercio" → Output: articulo_410_codigo_comercio, obligaciones mercantiles
+Input: "me chocaron el carro" → Output: accidente tránsito terrestre, responsabilidad civil extracontractual
+Input: "seguridad de la nacion" → Output: seguridad nacional, defensa integral, constitución
 
 INPUT ACTUAL: "${preguntaColoquial}"
 OUTPUT:`;
@@ -48,17 +49,17 @@ OUTPUT:`;
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
-      body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.1 })
+      body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.0 }) // Temperatura 0 para máxima precisión
     });
     const data = await res.json();
     return data.choices[0].message.content.trim();
   } catch (error) {
-    console.error("❌ Error en traducción:", error);
+    console.error(" Error en traducción:", error);
     return preguntaColoquial;
   }
 }
 
-// Gestor de memoria simple
+// Gestor de memoria seguro
 async function obtenerMemoria(sessionId) {
   if (!sessionId) return [];
   const { data: historial } = await supabase
@@ -80,39 +81,37 @@ async function guardarMensaje(sessionId, role, content) {
 app.post('/api/consultar', async (req, res) => {
   try {
     const { pregunta, sessionId } = req.body;
-    console.log(" Pregunta:", pregunta);
+    console.log("📨 Pregunta:", pregunta);
     
-    // Guardar pregunta del usuario
     await guardarMensaje(sessionId, 'user', pregunta);
-
-    // Obtener historial reciente
     const historial = await obtenerMemoria(sessionId);
 
-    // Traducir a términos técnicos
     const terminosTecnicos = await traducirATerminosJuridicos(pregunta);
-    console.log("️ Términos:", terminosTecnicos);
+    console.log("⚖️ Términos:", terminosTecnicos);
 
     let articulos = [];
+    let busquedaExactaFallida = false;
     
-    // BÚSQUEDA HÍBRIDA: Exacta vs Semántica
-    if (terminosTecnicos.toLowerCase().includes('articulo_')) {
-      console.log("🎯 Detección de referencia exacta. Buscando por ID...");
-      const partes = terminosTecnicos.split(',')[0].split('_'); 
+    // BÚSQUEDA HÍBRIDA INTELIGENTE
+    const terminosArray = terminosTecnicos.split(',').map(t => t.trim());
+    const referenciaExacta = terminosArray.find(t => /^articulo_\d+_.+$/.test(t));
+
+    if (referenciaExacta) {
+      console.log(" Detección de referencia exacta:", referenciaExacta);
+      const partes = referenciaExacta.split('_'); 
       const numArt = partes[1];
-      const leyRef = partes.slice(2).join('_');
+      const leyRef = partes.slice(2).join('_').toLowerCase();
       
-      // Mapeo de nombres abreviados a IDs reales de tu tabla 'leyes'
+      // Mapeo flexible con coincidencia parcial
       const mapLeyes = { 
-        'codigo_comercio': 4,   
-        'codigo_civil': 3,      
-        'constitucion': 1,      
-        'lottt': 8,
-        'codigo_procedimiento_civil': 7,
-        'codigo_penal': 6,
-        'coppp': 5,
-        'propiedad_horizontal': 2
-      }; 
-      const leyId = mapLeyes[leyRef];
+        'constitucion': 1, 'propiedad_horizontal': 2, 'codigo_civil': 3, 
+        'codigo_comercio': 4, 'coppp': 5, 'codigo_penal': 6, 
+        'codigo_procedimiento_civil': 7, 'lottt': 8 
+      };
+      
+      // Buscar coincidencia parcial en las claves del mapa
+      const leyKey = Object.keys(mapLeyes).find(k => leyRef.includes(k) || k.includes(leyRef));
+      const leyId = leyKey ? mapLeyes[leyKey] : null;
 
       if (leyId) {
         const { data } = await supabase
@@ -121,24 +120,34 @@ app.post('/api/consultar', async (req, res) => {
           .eq('numero_articulo', numArt)
           .eq('ley_id', leyId)
           .limit(1);
-        if (data && data.length > 0) articulos = data;
+        if (data && data.length > 0) {
+          articulos = data;
+        } else {
+          busquedaExactaFallida = true;
+          console.log("⚠️ Referencia exacta no encontrada en BD. Cayendo a semántica.");
+        }
+      } else {
+        busquedaExactaFallida = true;
+        console.log("⚠️ Ley no reconocida en mapeo. Cayendo a semántica.");
       }
     }
 
-    // Fallback semántico si no encontró por ID
+    // Fallback semántico mejorado
     if (articulos.length === 0) {
-      console.log("🔍 Búsqueda semántica fallback...");
+      console.log(" Búsqueda semántica fallback...");
+      // Filtrar términos falsos antes de generar embedding
+      const terminosLimpios = terminosArray.filter(t => !/^articulo_\d+_.+$/.test(t) || busquedaExactaFallida).join(', ');
+      
       const currentExtractor = await getExtractor();
-      const output = await currentExtractor(terminosTecnicos, { pooling: 'mean', normalize: true });
+      const output = await currentExtractor(terminosLimpios || pregunta, { pooling: 'mean', normalize: true });
       const queryEmbedding = Array.from(output.data);
 
       const { data, error } = await supabase.rpc('match_articulos', {
-        query_embedding: queryEmbedding, match_threshold: 0.1, match_count: 5
+        query_embedding: queryEmbedding, match_threshold: 0.05, match_count: 5 // Umbral ultra-bajo para recuperar algo
       });
       if (!error && data) articulos = data;
     }
 
-    // Construir contexto completo
     const contextoArticulos = articulos.length 
       ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n')
       : "No se encontraron artículos específicos.";
@@ -147,7 +156,6 @@ app.post('/api/consultar', async (req, res) => {
       ? `\nHISTORIAL RECIENTE:\n${historial.map(h => `${h.role}: ${h.content}`).join('\n')}`
       : "";
 
-    // Prompt Final con Memoria e Instrucción Universal
     const promptFinal = `Eres LexnaVe, abogada venezolana experta. Tienes memoria de esta conversación.
 
 ARTÍCULOS LEGALES:
@@ -157,9 +165,9 @@ ${contextoHistorial}
 PREGUNTA ACTUAL: "${pregunta}"
 
 INSTRUCCIONES:
-Analiza los ARTÍCULOS proporcionados. Si son relevantes, úsalos como fuente principal. Si NO están relacionados, ignóralos y responde usando tu conocimiento jurídico venezolano general. En ese caso inicia con: '️ Nota: No se encontraron artículos específicos en la base cargada, pero según la normativa vigente...'
+Analiza los ARTÍCULOS proporcionados. Si son relevantes, úsalos como fuente principal CITANDO EL NÚMERO DE ARTÍCULO EXACTO. Si NO están relacionados o están vacíos, responde usando tu conocimiento jurídico venezolano general. En ese caso inicia con: '⚠️ Nota: No se encontraron artículos específicos en la base cargada, pero según la normativa vigente...'
 
-Usa el HISTORIAL para entender referencias como "ese artículo" o "mi caso anterior". Responde en lenguaje sencillo, da pasos prácticos y termina siempre con: "⚖️ Esto es orientación general. Consulta con un abogado."`;
+Usa el HISTORIAL para entender referencias contextuales. Responde en lenguaje sencillo, da pasos prácticos y termina siempre con: "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -170,9 +178,7 @@ Usa el HISTORIAL para entender referencias como "ese artículo" o "mi caso anter
     const data = await groqRes.json();
     const respuesta = data.choices[0].message.content;
 
-    // Guardar respuesta de LexnaVe
     await guardarMensaje(sessionId, 'assistant', respuesta);
-
     res.json({ respuesta });
 
   } catch (error) {
