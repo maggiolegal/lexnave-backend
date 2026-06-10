@@ -84,7 +84,7 @@ app.post('/api/consultar', async (req, res) => {
     // PASO 3: Buscar en Supabase con el vector técnico
     const { data: articulos, error } = await supabase.rpc('match_articulos', {
       query_embedding: queryEmbedding,
-      match_threshold: 0.2, // Umbral ajustado para términos técnicos
+      match_threshold: 0.1, // Umbral ajustado para términos técnicos
       match_count: 5
     });
 
