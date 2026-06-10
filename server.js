@@ -11,7 +11,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Configuración de Supabase con Service Role Key
 const supabase = createClient(
   process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co",
   process.env.SUPABASE_KEY,
@@ -21,28 +20,26 @@ const supabase = createClient(
 let extractor = null;
 async function getExtractor() {
   if (!extractor) {
-    console.log("🧠 Cargando modelo semántico...");
+    console.log(" Cargando modelo semántico...");
     extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
     console.log("✅ Modelo listo.");
   }
   return extractor;
 }
 
-// Función para traducir lenguaje coloquial a términos jurídicos venezolanos
+// Traductor con detección de referencias explícitas
 async function traducirATerminosJuridicos(preguntaColoquial) {
-  const prompt = `Eres un experto en terminología jurídica venezolana. Tu ÚNICA tarea es convertir preguntas en lenguaje coloquial a 3-5 términos técnicos precisos para búsqueda legal.
+  const prompt = `Eres un experto en terminología jurídica venezolana. Convierte preguntas coloquiales a términos técnicos para búsqueda legal.
 
-REGLAS ESTRICTAS:
-1. Devuelve SOLO los términos separados por comas.
-2. Sin explicaciones, sin saludos, sin formato markdown.
-3. Usa exclusivamente vocabulario del derecho civil, penal, laboral y constitucional venezolano.
-4. Si la pregunta ya es técnica, devuélvela igual.
+REGLAS:
+1. Si detectas "artículo [número] de [ley]", devuelve EXACTAMENTE: "articulo_[numero]_[ley_abreviada]" como PRIMER término.
+2. Para conceptos generales, devuelve 3-5 términos técnicos separados por comas.
+3. Sin explicaciones ni markdown. Solo los términos.
 
 EJEMPLOS:
-Input: "me chocaron el carro y se fugó" → Output: accidente tránsito terrestre, delito fuga conductor, responsabilidad civil extracontractual
-Input: "compré casa y no me la entregan" → Output: compraventa inmueble, incumplimiento contractual, entrega posesión bien raíz
-Input: "mi jefe no me paga" → Output: salario pendiente, lottt, despido injustificado
-Input: "que es seguridad de la nacion" → Output: seguridad nacional, defensa integral, constitución república bolivariana
+Input: "que dice el articulo 410 del codigo de comercio" → Output: articulo_410_codigo_comercio, obligaciones mercantiles, actos de comercio
+Input: "me chocaron el carro" → Output: accidente tránsito terrestre, responsabilidad civil extracontractual, ley de tránsito
+Input: "seguridad de la nacion" → Output: seguridad nacional, defensa integral, constitución república bolivariana
 
 INPUT ACTUAL: "${preguntaColoquial}"
 OUTPUT:`;
@@ -50,88 +47,133 @@ OUTPUT:`;
   try {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.1
-      })
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
+      body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.1 })
     });
-    
     const data = await res.json();
     return data.choices[0].message.content.trim();
   } catch (error) {
-    console.error(" Error en traducción jurídica:", error);
+    console.error("❌ Error en traducción:", error);
     return preguntaColoquial;
   }
 }
 
+// Gestor de memoria simple
+async function obtenerMemoria(sessionId) {
+  if (!sessionId) return [];
+  const { data: historial } = await supabase
+    .from('chat_history')
+    .select('role, content')
+    .eq('session_id', sessionId)
+    .order('created_at', { ascending: false })
+    .limit(5);
+  return historial?.reverse() || [];
+}
+
+async function guardarMensaje(sessionId, role, content) {
+  if (!sessionId) return;
+  await supabase.from('chat_history').insert({ session_id: sessionId, role, content }).then(({ error }) => {
+    if (error) console.error("❌ Error guardando mensaje:", error);
+  });
+}
+
 app.post('/api/consultar', async (req, res) => {
   try {
-    const { pregunta } = req.body;
-    console.log("📨 Pregunta original:", pregunta);
+    const { pregunta, sessionId } = req.body;
+    console.log(" Pregunta:", pregunta);
     
-    // PASO 1: Traducir a términos jurídicos
+    // Guardar pregunta del usuario
+    await guardarMensaje(sessionId, 'user', pregunta);
+
+    // Obtener historial reciente
+    const historial = await obtenerMemoria(sessionId);
+
+    // Traducir a términos técnicos
     const terminosTecnicos = await traducirATerminosJuridicos(pregunta);
-    console.log("⚖️ Términos técnicos generados:", terminosTecnicos);
+    console.log("️ Términos:", terminosTecnicos);
+
+    let articulos = [];
     
-    // PASO 2: Generar embedding de los TÉRMINOS TÉCNICOS
-    const currentExtractor = await getExtractor();
-    const output = await currentExtractor(terminosTecnicos, { pooling: 'mean', normalize: true });
-    const queryEmbedding = Array.from(output.data);
+    // BÚSQUEDA HÍBRIDA: Exacta vs Semántica
+    if (terminosTecnicos.toLowerCase().includes('articulo_')) {
+      console.log("🎯 Detección de referencia exacta. Buscando por ID...");
+      const partes = terminosTecnicos.split(',')[0].split('_'); 
+      const numArt = partes[1];
+      const leyRef = partes.slice(2).join('_');
+      
+      // Mapeo de nombres abreviados a IDs reales de tu tabla 'leyes'
+      const mapLeyes = { 
+        'codigo_comercio': 4,   
+        'codigo_civil': 3,      
+        'constitucion': 1,      
+        'lottt': 8,
+        'codigo_procedimiento_civil': 7,
+        'codigo_penal': 6,
+        'coppp': 5,
+        'propiedad_horizontal': 2
+      }; 
+      const leyId = mapLeyes[leyRef];
 
-    // PASO 3: Buscar en Supabase con umbral reducido (0.1)
-    const { data: articulos, error } = await supabase.rpc('match_articulos', {
-      query_embedding: queryEmbedding,
-      match_threshold: 0.1,
-      match_count: 5
-    });
-
-    if (error) {
-      console.error("❌ Error en RPC match_articulos:", error);
-      return res.status(500).json({ respuesta: "Error al buscar en la base legal." });
+      if (leyId) {
+        const { data } = await supabase
+          .from('articulos')
+          .select('*, leyes(nombre)')
+          .eq('numero_articulo', numArt)
+          .eq('ley_id', leyId)
+          .limit(1);
+        if (data && data.length > 0) articulos = data;
+      }
     }
 
-    const contexto = articulos?.length 
+    // Fallback semántico si no encontró por ID
+    if (articulos.length === 0) {
+      console.log("🔍 Búsqueda semántica fallback...");
+      const currentExtractor = await getExtractor();
+      const output = await currentExtractor(terminosTecnicos, { pooling: 'mean', normalize: true });
+      const queryEmbedding = Array.from(output.data);
+
+      const { data, error } = await supabase.rpc('match_articulos', {
+        query_embedding: queryEmbedding, match_threshold: 0.1, match_count: 5
+      });
+      if (!error && data) articulos = data;
+    }
+
+    // Construir contexto completo
+    const contextoArticulos = articulos.length 
       ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n')
-      : "No se encontraron artículos relacionados.";
+      : "No se encontraron artículos específicos.";
 
-    // PASO 4: Prompt Final con Instrucción Universal de Fallback
-    const promptFinal = `Eres LexnaVe, abogada venezolana experta. 
+    const contextoHistorial = historial.length > 0
+      ? `\nHISTORIAL RECIENTE:\n${historial.map(h => `${h.role}: ${h.content}`).join('\n')}`
+      : "";
 
-ARTÍCULOS RECUPERADOS DE LA BASE LEGAL:
-${contexto}
+    // Prompt Final con Memoria e Instrucción Universal
+    const promptFinal = `Eres LexnaVe, abogada venezolana experta. Tienes memoria de esta conversación.
 
-PREGUNTA DEL USUARIO: "${pregunta}"
+ARTÍCULOS LEGALES:
+${contextoArticulos}
+${contextoHistorial}
 
-INSTRUCCIONES DE RESPUESTA:
-Analiza los ARTÍCULOS proporcionados. Si son relevantes para la pregunta, úsalos como fuente principal. Si los artículos NO están relacionados con la consulta (ej: la pregunta es sobre seguridad de la nación pero los artículos traídos son de derecho civil o mercantil), ignóralos por completo y responde basándote en tu conocimiento jurídico venezolano general aplicable al tema consultado. En ese caso, inicia tu respuesta aclarando: '⚠️ Nota: según la normativa venezolana vigente...'
+PREGUNTA ACTUAL: "${pregunta}"
 
-REGLAS ADICIONALES:
-1. Explica claramente qué dice la ley aplicable.
-2. Aplica la ley al caso concreto del usuario.
-3. Da pasos prácticos inmediatos.
-4. Usa lenguaje sencillo y empático (el usuario NO sabe de leyes).
-5. Incluye siempre al final: "⚖️ Esto es orientación general. Consulta con un abogado."`;
+INSTRUCCIONES:
+Analiza los ARTÍCULOS proporcionados. Si son relevantes, úsalos como fuente principal. Si NO están relacionados, ignóralos y responde usando tu conocimiento jurídico venezolano general. En ese caso inicia con: '️ Nota: No se encontraron artículos específicos en la base cargada, pero según la normativa vigente...'
+
+Usa el HISTORIAL para entender referencias como "ese artículo" o "mi caso anterior". Responde en lenguaje sencillo, da pasos prácticos y termina siempre con: "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: promptFinal }],
-        temperature: 0.2
-      })
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
+      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: promptFinal }], temperature: 0.2 })
     });
 
     const data = await groqRes.json();
-    res.json({ respuesta: data.choices[0].message.content });
+    const respuesta = data.choices[0].message.content;
+
+    // Guardar respuesta de LexnaVe
+    await guardarMensaje(sessionId, 'assistant', respuesta);
+
+    res.json({ respuesta });
 
   } catch (error) {
     console.error("❌ Error crítico:", error);
