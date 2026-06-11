@@ -197,5 +197,35 @@ Usa el historial para mantener coherencia conversacional.`;
   }
 });
 
+// RUTA TEMPORAL PARA ACTUALIZAR EMBEDDINGS EN LA NUBE
+app.get('/api/admin/update-embeddings', async (req, res) => {
+  console.log("🚀 Iniciando actualización remota de embeddings...");
+  try {
+    const { data: articulos } = await supabase
+      .from('articulos')
+      .select('id, contenido_enriquecido')
+      .not('contenido_enriquecido', 'is', null)
+      .limit(1000); // Ajusta si tienes más
+
+    if (!articulos) return res.json({ msg: "No hay artículos para actualizar" });
+
+    const currentExtractor = await getExtractor();
+    let count = 0;
+
+    for (const art of articulos) {
+      const output = await currentExtractor(art.contenido_enriquecido, { pooling: 'mean', normalize: true });
+      const embedding = Array.from(output.data);
+      
+      await supabase.from('articulos').update({ embedding }).eq('id', art.id);
+      count++;
+    }
+
+    res.json({ msg: `✅ ${count} embeddings actualizados exitosamente en la nube.` });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🚀 LexnaVe v20.0 activo en puerto ${PORT}`));
