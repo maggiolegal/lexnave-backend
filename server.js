@@ -41,7 +41,7 @@ async function traducirATerminosJuridicos(preguntaColoquial) {
 REGLAS ABSOLUTAS:
 1. SI EL USUARIO MENCIONA UN ARTÍCULO EXPLÍCITO: Devuélvelo como primer término (ej: articulo_410_codigo_comercio).
 2. SI NO MENCIONA ARTÍCULOS: Identifica LA ETIQUETA DOCTRINARIA MÁS PRECISA Y TÉCNICA aplicable al caso.
-3. PROHIBIDO TERMINOLOGÍA GENÉRICA: Nunca uses "daños", "responsabilidad", "incumplimiento" o "delito" solos. Usa SIEMPRE la figura dogmática completa (ej: responsabilidad_civil_extracontractual, nulidad_relativa_contrato, tipo_penal_doloso).
+3. PROHIBIDO TERMINOLOGÍA GENÉRICA: Nunca usa "daños", "responsabilidad", "incumplimiento" o "delito" solos. Usa SIEMPRE la figura dogmática completa (ej: responsabilidad_civil_extracontractual, nulidad_relativa_contrato, tipo_penal_doloso).
 4. Formato estricto: solo términos separados por comas, sin markdown ni explicaciones.
 
 EJEMPLOS DE ABSTRACCIÓN CORRECTA:
@@ -197,17 +197,20 @@ Usa el historial para mantener coherencia conversacional.`;
   }
 });
 
-// RUTA TEMPORAL PARA ACTUALIZAR EMBEDDINGS EN LA NUBE
+// RUTA TEMPORAL PARA ACTUALIZAR EMBEDDINGS EN LA NUBE (LOTES DE 50)
 app.get('/api/admin/update-embeddings', async (req, res) => {
-  console.log("🚀 Iniciando actualización remota de embeddings...");
+  console.log("🚀 Iniciando actualización de embeddings (Lote de 50)...");
   try {
+    // Buscamos artículos que tienen contenido_enriquecido pero cuyo vector podría estar desactualizado
     const { data: articulos } = await supabase
       .from('articulos')
       .select('id, contenido_enriquecido')
       .not('contenido_enriquecido', 'is', null)
-      .limit(1000); // Ajusta si tienes más
+      .limit(50); // PROCESA SOLO 50 PARA EVITAR TIMEOUT
 
-    if (!articulos) return res.json({ msg: "No hay artículos para actualizar" });
+    if (!articulos || articulos.length === 0) {
+        return res.json({ msg: "✅ ¡Todos los artículos parecen estar actualizados!" });
+    }
 
     const currentExtractor = await getExtractor();
     let count = 0;
@@ -220,7 +223,10 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
       count++;
     }
 
-    res.json({ msg: `✅ ${count} embeddings actualizados exitosamente en la nube.` });
+    res.json({ 
+        msg: `✅ Lote completado: ${count} artículos actualizados.`, 
+        instruction: "Recarga esta página (F5) para procesar el siguiente lote de 50." 
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error.message });
