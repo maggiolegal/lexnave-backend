@@ -150,7 +150,7 @@ app.post('/api/consultar', async (req, res) => {
       } else {
         console.log("⚠️ Búsqueda semántica falló. Activando fallback textual dinámico...");
         
-        // 🚀 FALLBACK DINÁMICO: Usa LOS MISMOS TÉRMINOS que generó Groq
+        //  FALLBACK DINÁMICO: Usa LOS MISMOS TÉRMINOS que generó Groq
         const terminosBusqueda = terminosArray
           .filter(t => !/^articulo_\d+/.test(t)) // Quita referencias exactas como articulo_1185
           .map(t => `contenido_enriquecido.ilike.%${t}%`)
@@ -166,6 +166,41 @@ app.post('/api/consultar', async (req, res) => {
           if (textData && textData.length > 0) {
             articulos = textData;
             console.log(`✅ Fallback dinámico encontró ${textData.length} artículos usando: ${terminosArray.join(', ')}`);
+          }
+        }
+      }
+    }
+
+    // ⚖️ FILTRO DE RELEVANCIA INTELIGENTE (Post-Búsqueda)
+    // Si tenemos artículos pero ninguno coincide con las etiquetas dogmáticas generadas,
+    // activamos el fallback textual dinámico como red de seguridad.
+    if (articulos.length > 0) {
+      const tieneCoincidenciaDogmatica = articulos.some(a => 
+        terminosArray.some(t => 
+          !/^articulo_\d+/.test(t) && 
+          a.contenido_enriquecido?.toLowerCase().includes(t.toLowerCase())
+        )
+      );
+
+      if (!tieneCoincidenciaDogmatica) {
+        console.log("️ Artículos encontrados pero sin coincidencia dogmática. Reforzando con fallback textual...");
+        
+        const terminosBusqueda = terminosArray
+          .filter(t => !/^articulo_\d+/.test(t))
+          .map(t => `contenido_enriquecido.ilike.%${t}%`)
+          .join(',');
+
+        if (terminosBusqueda) {
+          const { data: textData } = await supabase
+            .from('articulos')
+            .select('*, leyes(nombre)')
+            .or(terminosBusqueda)
+            .limit(3);
+            
+          // Reemplazamos o complementamos solo si el fallback trae artículos CON las etiquetas correctas
+          if (textData && textData.length > 0) {
+            articulos = textData; 
+            console.log(`✅ Fallback textual corrigió la relevancia: ${textData.length} artículos con etiquetas exactas.`);
           }
         }
       }
