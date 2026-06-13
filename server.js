@@ -131,9 +131,9 @@ app.post('/api/consultar', async (req, res) => {
       }
     }
 
-    // Fallback Semántico con Umbral Seguro (0.15)
+    // Fallback Semántico con Umbral Seguro (0.15) + Fallback Textual
     if (articulos.length === 0) {
-      console.log(" Búsqueda semántica pura (umbral 0.15)...");
+      console.log("🔍 Búsqueda semántica pura (umbral 0.15)...");
       const terminosLimpios = terminosArray.filter(t => !/^articulo_\d+_.+$/.test(t)).join(', ');
       
       const currentExtractor = await getExtractor();
@@ -143,7 +143,26 @@ app.post('/api/consultar', async (req, res) => {
       const { data, error } = await supabase.rpc('match_articulos', {
         query_embedding: queryEmbedding, match_threshold: 0.15, match_count: 5
       });
-      if (!error && data) articulos = data;
+      
+      if (!error && data && data.length > 0) {
+        articulos = data;
+        console.log(`✅ Encontrados ${data.length} artículos por similitud semántica.`);
+      } else {
+        console.log("⚠️ Búsqueda semántica no arrojó resultados. Activando fallback textual...");
+        
+        // 🚀 FALLBACK TEXTUAL: Buscar por etiquetas dogmáticas en contenido_enriquecido
+        const { data: textData } = await supabase
+          .from('articulos')
+          .select('*, leyes(nombre)')
+          .ilike('contenido_enriquecido', '%responsabilidad_civil_extracontractual%')
+          .eq('ley_id', 3) // Solo Código Civil
+          .limit(3);
+          
+        if (textData && textData.length > 0) {
+          articulos = textData;
+          console.log(`✅ Fallback textual encontró ${textData.length} artículos relevantes.`);
+        }
+      }
     }
 
     const contextoArticulos = articulos.length 
