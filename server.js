@@ -131,7 +131,7 @@ app.post('/api/consultar', async (req, res) => {
       }
     }
 
-    // Fallback Semántico con Umbral Seguro (0.15) + Fallback Textual
+    // Fallback Semántico + Fallback Textual Dinámico
     if (articulos.length === 0) {
       console.log("🔍 Búsqueda semántica pura (umbral 0.15)...");
       const terminosLimpios = terminosArray.filter(t => !/^articulo_\d+_.+$/.test(t)).join(', ');
@@ -148,19 +148,25 @@ app.post('/api/consultar', async (req, res) => {
         articulos = data;
         console.log(`✅ Encontrados ${data.length} artículos por similitud semántica.`);
       } else {
-        console.log("⚠️ Búsqueda semántica no arrojó resultados. Activando fallback textual...");
+        console.log("⚠️ Búsqueda semántica falló. Activando fallback textual dinámico...");
         
-        // 🚀 FALLBACK TEXTUAL: Buscar por etiquetas dogmáticas en contenido_enriquecido
-        const { data: textData } = await supabase
-          .from('articulos')
-          .select('*, leyes(nombre)')
-          .ilike('contenido_enriquecido', '%responsabilidad_civil_extracontractual%')
-          .eq('ley_id', 3) // Solo Código Civil
-          .limit(3);
-          
-        if (textData && textData.length > 0) {
-          articulos = textData;
-          console.log(`✅ Fallback textual encontró ${textData.length} artículos relevantes.`);
+        // 🚀 FALLBACK DINÁMICO: Usa LOS MISMOS TÉRMINOS que generó Groq
+        const terminosBusqueda = terminosArray
+          .filter(t => !/^articulo_\d+/.test(t)) // Quita referencias exactas como articulo_1185
+          .map(t => `contenido_enriquecido.ilike.%${t}%`)
+          .join(',');
+
+        if (terminosBusqueda) {
+          const { data: textData } = await supabase
+            .from('articulos')
+            .select('*, leyes(nombre)')
+            .or(terminosBusqueda)
+            .limit(3);
+            
+          if (textData && textData.length > 0) {
+            articulos = textData;
+            console.log(`✅ Fallback dinámico encontró ${textData.length} artículos usando: ${terminosArray.join(', ')}`);
+          }
         }
       }
     }
