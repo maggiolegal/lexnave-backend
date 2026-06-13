@@ -170,8 +170,7 @@ INSTRUCCIONES OBLIGATORIAS DE RESPUESTA:
 2. REGLA DE RECHAZO: Analiza los artículos recuperados. SI NO GUARDAN RELACIÓN LÓGICA CON LA PREGUNTA (ej: citas de mandato en un accidente de tránsito), IGNÓRALOS COMPLETAMENTE y declara que no hay fundamentos en la base cargada. NUNCA fuerces una cita irrelevante.
 3. CITACIÓN FORZADA: SOLO SI LOS ARTÍCULOS SON RELEVANTES, DEBES CITAR AL MENOS UNO TEXTUALMENTE usando este formato exacto: "El artículo [NÚMERO] del [LEY] establece que [CONTENIDO TEXTUAL]". La cita debe ser la base de tu respuesta.
 4. EXPLICACIÓN APLICADA: Después de citar, explica brevemente cómo aplica al caso en lenguaje claro y accesible.
-5. SIN ARTÍCULOS RELEVANTES: Inicia con "️ Nota: No se encontraron artículos específicos en la base cargada..." y responde con conocimiento general venezolano, ACLARANDO que no hay fundamento verificado.
-6. CIERRE ÉTICO OBLIGATORIO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."
+5. SIN ARTÍCULOS RELEVANTES: Inicia con "️ Nota: he analizado el asunto..." y responde con conocimiento general venezolano.
 
 Usa el historial para mantener coherencia conversacional.`;
 
@@ -199,33 +198,50 @@ Usa el historial para mantener coherencia conversacional.`;
 
 // RUTA TEMPORAL PARA ACTUALIZAR EMBEDDINGS EN LA NUBE (LOTES DE 50)
 app.get('/api/admin/update-embeddings', async (req, res) => {
-  console.log("🚀 Iniciando actualización de embeddings (Lote de 50)...");
+  console.log("🚀 Verificando estado y procesando lote...");
   try {
-    // Buscamos artículos que tienen contenido_enriquecido pero cuyo vector podría estar desactualizado
+    // 1. Contar cuántos faltan por actualizar
+    const { count } = await supabase
+      .from('articulos')
+      .select('*', { count: 'exact', head: true })
+      .not('contenido_enriquecido', 'is', null);
+
+    if (count === 0) {
+        return res.json({ msg: "✅ ¡TODO LISTO! No quedan artículos por actualizar." });
+    }
+
+    // 2. Procesar el lote de 50
     const { data: articulos } = await supabase
       .from('articulos')
       .select('id, contenido_enriquecido')
       .not('contenido_enriquecido', 'is', null)
-      .limit(50); // PROCESA SOLO 50 PARA EVITAR TIMEOUT
-
-    if (!articulos || articulos.length === 0) {
-        return res.json({ msg: "✅ ¡Todos los artículos parecen estar actualizados!" });
-    }
+      .limit(50);
 
     const currentExtractor = await getExtractor();
-    let count = 0;
+    let countActualizados = 0;
 
     for (const art of articulos) {
+      // Generar embedding
       const output = await currentExtractor(art.contenido_enriquecido, { pooling: 'mean', normalize: true });
       const embedding = Array.from(output.data);
       
-      await supabase.from('articulos').update({ embedding }).eq('id', art.id);
-      count++;
+      // ✅ VERIFICACIÓN DE ERRORES AL GUARDAR
+      const { error: updateError } = await supabase
+        .from('articulos')
+        .update({ embedding: embedding }) 
+        .eq('id', art.id);
+
+      if (updateError) {
+        console.error(`❌ ERROR AL GUARDAR Art ${art.id}:`, updateError.message);
+      } else {
+        countActualizados++;
+      }
     }
 
     res.json({ 
-        msg: `✅ Lote completado: ${count} artículos actualizados.`, 
-        instruction: "Recarga esta página (F5) para procesar el siguiente lote de 50." 
+        msg: `✅ Lote de ${countActualizados} actualizado.`, 
+        restantes: count - countActualizados,
+        instruction: "Recarga para continuar." 
     });
   } catch (error) {
     console.error(error);
