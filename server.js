@@ -92,13 +92,13 @@ async function guardarMensaje(sessionId, role, content) {
 app.post('/api/consultar', async (req, res) => {
   try {
     const { pregunta, sessionId } = req.body;
-    console.log("📨 Pregunta:", pregunta);
+    console.log(" Pregunta:", pregunta);
     
     await guardarMensaje(sessionId, 'user', pregunta);
     const historial = await obtenerMemoria(sessionId);
 
     const terminosTecnicos = await traducirATerminosJuridicos(pregunta);
-    console.log("⚖️ Términos generados:", terminosTecnicos);
+    console.log("️ Términos generados:", terminosTecnicos);
 
     let articulos = [];
     const terminosArray = terminosTecnicos.split(',').map(t => t.trim());
@@ -106,7 +106,7 @@ app.post('/api/consultar', async (req, res) => {
 
     // Búsqueda Exacta Solo Si Hay Referencia Válida
     if (referenciaExacta) {
-      console.log("🎯 Referencia exacta detectada:", referenciaExacta);
+      console.log(" Referencia exacta detectada:", referenciaExacta);
       const partes = referenciaExacta.split('_'); 
       const numArt = partes[1];
       const leyRef = partes.slice(2).join('_').toLowerCase();
@@ -198,7 +198,7 @@ Usa el historial para mantener coherencia conversacional.`;
 
 // RUTA TEMPORAL PARA ACTUALIZAR EMBEDDINGS EN LA NUBE (LOTES DE 50)
 app.get('/api/admin/update-embeddings', async (req, res) => {
-  console.log("🚀 Verificando estado y procesando lote...");
+  console.log(" Verificando estado y procesando lote...");
   try {
     // 1. Contar cuántos faltan por actualizar
     const { count } = await supabase
@@ -225,16 +225,17 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
       const output = await currentExtractor(art.contenido_enriquecido, { pooling: 'mean', normalize: true });
       const embedding = Array.from(output.data);
       
-      // ✅ VERIFICACIÓN DE ERRORES AL GUARDAR
+      // ✅ VERIFICACIÓN DE ERRORES AL GUARDAR CON RETURNING MINIMAL
       const { error: updateError } = await supabase
         .from('articulos')
-        .update({ embedding: embedding }) 
+        .update({ embedding: embedding }, { returning: 'minimal' }) 
         .eq('id', art.id);
 
       if (updateError) {
         console.error(`❌ ERROR AL GUARDAR Art ${art.id}:`, updateError.message);
       } else {
         countActualizados++;
+        console.log(` Guardado exitoso Art ${art.id}`);
       }
     }
 
