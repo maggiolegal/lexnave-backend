@@ -121,7 +121,6 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     const userId = req.user.id;
     
     // Construir sessionId seguro basado en el usuario autenticado
-    // Esto garantiza aislamiento total de memoria entre usuarios
     const safeSessionId = clientSessionId && clientSessionId.startsWith(`${userId}_`) 
       ? clientSessionId 
       : `${userId}_${crypto.randomUUID().split('-')[0]}`;
@@ -204,13 +203,19 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       }
     }
 
-    // ⚖️ FILTRO DE RELEVANCIA INTELIGENTE (Post-Búsqueda)
+    // ⚖️ FILTRO DE RELEVANCIA INTELIGENTE CON COINCIDENCIA DE RAÍCES
     if (articulos.length > 0) {
       const tieneCoincidenciaDogmatica = articulos.some(a => 
-        terminosArray.some(t => 
-          !/^articulo_\d+/.test(t) && 
-          a.contenido_enriquecido?.toLowerCase().includes(t.toLowerCase())
-        )
+        terminosArray.some(t => {
+          if (/^articulo_\d+/.test(t)) return false;
+          
+          const contenidoLower = a.contenido_enriquecido?.toLowerCase() || '';
+          const terminoLower = t.toLowerCase();
+          
+          // Coincidencia exacta O coincidencia por raíz (primer segmento antes del guion bajo)
+          const raiz = terminoLower.split('_')[0];
+          return contenidoLower.includes(terminoLower) || contenidoLower.includes(raiz);
+        })
       );
 
       if (!tieneCoincidenciaDogmatica) {
