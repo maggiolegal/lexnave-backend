@@ -44,7 +44,8 @@ async function verifyAuth(req, res, next) {
     req.user = user; // Adjuntamos el usuario verificado a la request
     next();
   } catch (err) {
-    return res.status(500).json({ error: "Error verificando autenticación." });
+    console.error("Error verificando auth:", err);
+    return res.status(500).json({ error: "Error interno verificando autenticación." });
   }
 }
 
@@ -120,6 +121,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     const userId = req.user.id;
     
     // Construir sessionId seguro basado en el usuario autenticado
+    // Esto garantiza aislamiento total de memoria entre usuarios
     const safeSessionId = clientSessionId && clientSessionId.startsWith(`${userId}_`) 
       ? clientSessionId 
       : `${userId}_${crypto.randomUUID().split('-')[0]}`;
@@ -130,7 +132,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     const historial = await obtenerMemoria(safeSessionId);
 
     const terminosTecnicos = await traducirATerminosJuridicos(pregunta);
-    console.log("️ Términos generados:", terminosTecnicos);
+    console.log("⚖️ Términos generados:", terminosTecnicos);
 
     let articulos = [];
     const terminosArray = terminosTecnicos.split(',').map(t => t.trim());
@@ -138,7 +140,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
 
     // Búsqueda Exacta Solo Si Hay Referencia Válida
     if (referenciaExacta) {
-      console.log(" Referencia exacta detectada:", referenciaExacta);
+      console.log("🎯 Referencia exacta detectada:", referenciaExacta);
       const partes = referenciaExacta.split('_'); 
       const numArt = partes[1];
       const leyRef = partes.slice(2).join('_').toLowerCase();
@@ -212,7 +214,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       );
 
       if (!tieneCoincidenciaDogmatica) {
-        console.log("️ Artículos encontrados pero sin coincidencia dogmática. Reforzando con fallback textual...");
+        console.log("⚠️ Artículos encontrados pero sin coincidencia dogmática. Reforzando con fallback textual...");
         
         const terminosBusqueda = terminosArray
           .filter(t => !/^articulo_\d+/.test(t))
@@ -277,14 +279,14 @@ INSTRUCCIONES OBLIGATORIAS DE RESPUESTA:
     res.json({ respuesta, sessionId: safeSessionId });
 
   } catch (error) {
-    console.error(" Error crítico:", error);
+    console.error("❌ Error crítico:", error);
     res.status(500).json({ respuesta: "Error técnico. Intenta nuevamente." });
   }
 });
 
 // RUTA TEMPORAL PARA ACTUALIZAR EMBEDDINGS (Sin Auth para mantenimiento)
 app.get('/api/admin/update-embeddings', async (req, res) => {
-  console.log(" Verificando estado y procesando lote...");
+  console.log("🚀 Verificando estado y procesando lote...");
   try {
     const { count } = await supabase
       .from('articulos')
@@ -317,7 +319,7 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
         console.error(`❌ ERROR AL GUARDAR Art ${art.id}:`, updateError.message);
       } else {
         countActualizados++;
-        console.log(` Guardado exitoso Art ${art.id}`);
+        console.log(`💾 Guardado exitoso Art ${art.id}`);
       }
     }
 
