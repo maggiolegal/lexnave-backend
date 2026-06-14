@@ -203,7 +203,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       }
     }
 
-    // ⚖️ FILTRO DE RELEVANCIA INTELIGENTE CON COINCIDENCIA DE RAÍCES
+    // ⚖️ FILTRO DE RELEVANCIA INTELIGENTE CON EXPANSIÓN SEMÁNTICA AUTOMÁTICA
     if (articulos.length > 0) {
       const tieneCoincidenciaDogmatica = articulos.some(a => 
         terminosArray.some(t => {
@@ -211,15 +211,17 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
           
           const contenidoLower = a.contenido_enriquecido?.toLowerCase() || '';
           const terminoLower = t.toLowerCase();
-          
-          // Coincidencia exacta O coincidencia por raíz (primer segmento antes del guion bajo)
           const raiz = terminoLower.split('_')[0];
-          return contenidoLower.includes(terminoLower) || contenidoLower.includes(raiz);
+          
+          // Coincidencia exacta, por raíz o parcial (para raíces largas)
+          return contenidoLower.includes(terminoLower) || 
+                 contenidoLower.includes(raiz) || 
+                 (raiz.length > 4 && contenidoLower.includes(raiz.substring(0, Math.min(raiz.length, 6))));
         })
       );
 
       if (!tieneCoincidenciaDogmatica) {
-        console.log("⚠️ Artículos encontrados pero sin coincidencia dogmática. Reforzando con fallback textual...");
+        console.log("⚠️ Sin coincidencia dogmática. Usando expansión semántica automática...");
         
         const terminosBusqueda = terminosArray
           .filter(t => !/^articulo_\d+/.test(t))
@@ -235,7 +237,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
             
           if (textData && textData.length > 0) {
             articulos = textData; 
-            console.log(`✅ Fallback textual corrigió la relevancia: ${textData.length} artículos con etiquetas exactas.`);
+            console.log(`✅ Expansión semántica encontró ${textData.length} artículos.`);
           }
         }
       }
