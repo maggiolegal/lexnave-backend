@@ -18,11 +18,35 @@ const supabase = createClient(
   {
     auth: { persistSession: false },
     realtime: {
-      autoReconnect: false, // Desactivamos reconexión innecesaria
-      transport: ws         // ✅ Inyectamos el constructor de WebSocket
+      autoReconnect: false,
+      transport: ws
     }
   }
 );
+
+// Middleware para validar Token JWT de Supabase Auth
+async function verifyAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: "Token de autenticación requerido." });
+  }
+
+  const token = authHeader.split(' ')[1];
+  
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error || !user) {
+      return res.status(401).json({ error: "Token inválido o expirado." });
+    }
+    
+    req.user = user; // Adjuntamos el usuario verificado a la request
+    next();
+  } catch (err) {
+    return res.status(500).json({ error: "Error verificando autenticación." });
+  }
+}
 
 let extractor = null;
 async function getExtractor() {
@@ -89,13 +113,21 @@ async function guardarMensaje(sessionId, role, content) {
   });
 }
 
-app.post('/api/consultar', async (req, res) => {
+// RUTA PRINCIPAL DE CONSULTA (PROTEGIDA POR AUTH)
+app.post('/api/consultar', verifyAuth, async (req, res) => {
   try {
-    const { pregunta, sessionId } = req.body;
-    console.log(" Pregunta:", pregunta);
+    const { pregunta, sessionId: clientSessionId } = req.body;
+    const userId = req.user.id;
     
-    await guardarMensaje(sessionId, 'user', pregunta);
-    const historial = await obtenerMemoria(sessionId);
+    // Construir sessionId seguro basado en el usuario autenticado
+    const safeSessionId = clientSessionId && clientSessionId.startsWith(`${userId}_`) 
+      ? clientSessionId 
+      : `${userId}_${crypto.randomUUID().split('-')[0]}`;
+
+    console.log(`📨 [${userId.substring(0,8)}...] Pregunta:`, pregunta);
+    
+    await guardarMensaje(safeSessionId, 'user', pregunta);
+    const historial = await obtenerMemoria(safeSessionId);
 
     const terminosTecnicos = await traducirATerminosJuridicos(pregunta);
     console.log("️ Términos generados:", terminosTecnicos);
@@ -150,9 +182,8 @@ app.post('/api/consultar', async (req, res) => {
       } else {
         console.log("⚠️ Búsqueda semántica falló. Activando fallback textual dinámico...");
         
-        //  FALLBACK DINÁMICO: Usa LOS MISMOS TÉRMINOS que generó Groq
         const terminosBusqueda = terminosArray
-          .filter(t => !/^articulo_\d+/.test(t)) // Quita referencias exactas como articulo_1185
+          .filter(t => !/^articulo_\d+/.test(t))
           .map(t => `contenido_enriquecido.ilike.%${t}%`)
           .join(',');
 
@@ -172,8 +203,6 @@ app.post('/api/consultar', async (req, res) => {
     }
 
     // ⚖️ FILTRO DE RELEVANCIA INTELIGENTE (Post-Búsqueda)
-    // Si tenemos artículos pero ninguno coincide con las etiquetas dogmáticas generadas,
-    // activamos el fallback textual dinámico como red de seguridad.
     if (articulos.length > 0) {
       const tieneCoincidenciaDogmatica = articulos.some(a => 
         terminosArray.some(t => 
@@ -197,7 +226,6 @@ app.post('/api/consultar', async (req, res) => {
             .or(terminosBusqueda)
             .limit(3);
             
-          // Reemplazamos o complementamos solo si el fallback trae artículos CON las etiquetas correctas
           if (textData && textData.length > 0) {
             articulos = textData; 
             console.log(`✅ Fallback textual corrigió la relevancia: ${textData.length} artículos con etiquetas exactas.`);
@@ -214,7 +242,6 @@ app.post('/api/consultar', async (req, res) => {
       ? `\nHISTORIAL RECIENTE:\n${historial.map(h => `${h.role}: ${h.content}`).join('\n')}`
       : "";
 
-    // Prompt Final Con Regla de Rechazo Ajustada y Citación Forzada
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática. Tienes memoria de esta conversación.
 
 ARTÍCULOS LEGALES RECUPERADOS DE LA BASE DE DATOS (Estos fueron seleccionados por un motor de búsqueda jurídica avanzada):
@@ -227,13 +254,11 @@ PREGUNTA DEL USUARIO: "${pregunta}"
 
 INSTRUCCIONES OBLIGATORIAS DE RESPUESTA:
 1. EMPATÍA ESTRUCTURAL: Si el usuario expone un problema personal, inicia SIEMPRE con "Lamento el incidente por el que estás pasando..." o "Entiendo tu preocupación...".
-2. CONFIANZA EN LA BÚSQUEDA: Los artículos recuperados arriba YA FUERON FILTRADOS POR RELEVANCIA JURÍDICA. Úsalos como base principal. Solo descártalos si son ABSOLUTAMENTE incoherentes (ej: hablar de divorcio en un caso de tránsito). Si guardan alguna relación temática, EXPLÍCALOS adaptándolos al caso.
-3. CITACIÓN FORZADA: DEBES CITAR AL MENOS UNO TEXTUALMENTE usando este formato exacto: "El artículo [NÚMERO] del [LEY] establece que [CONTENIDO TEXTUAL]". La cita debe ser la base de tu respuesta.
-4. EXPLICACIÓN APLICADA: Después de citar, explica brevemente cómo aplica al caso en lenguaje claro y accesible.
-5. SIN ARTÍCULOS RELEVANTES: SOLO si la variable contextoArticulos dice explícitamente "No se encontraron artículos específicos", inicia con "Nota: he analizado el asunto..." y responde con conocimiento general venezolano.
-6. CIERRE ÉTICO OBLIGATORIO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."
-
-Usa el historial para mantener coherencia conversacional.`;
+2. CONFIANZA EN LA BÚSQUEDA: Los artículos recuperados arriba YA FUERON FILTRADOS POR RELEVANCIA JURÍDICA. Úsalos como base principal. Solo descártalos si son ABSOLUTAMENTE incoherentes.
+3. CITACIÓN FORZADA: DEBES CITAR AL MENOS UNO TEXTUALMENTE usando este formato exacto: "El artículo [NÚMERO] del [LEY] establece que [CONTENIDO TEXTUAL]".
+4. EXPLICACIÓN APLICADA: Después de citar, explica brevemente cómo aplica al caso en lenguaje claro.
+5. SIN ARTÍCULOS RELEVANTES: SOLO si contextoArticulos dice "No se encontraron...", responde con conocimiento general.
+6. CIERRE ÉTICO OBLIGATORIO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -248,8 +273,8 @@ Usa el historial para mantener coherencia conversacional.`;
     const data = await groqRes.json();
     const respuesta = data.choices[0].message.content;
 
-    await guardarMensaje(sessionId, 'assistant', respuesta);
-    res.json({ respuesta });
+    await guardarMensaje(safeSessionId, 'assistant', respuesta);
+    res.json({ respuesta, sessionId: safeSessionId });
 
   } catch (error) {
     console.error(" Error crítico:", error);
@@ -257,11 +282,10 @@ Usa el historial para mantener coherencia conversacional.`;
   }
 });
 
-// RUTA TEMPORAL PARA ACTUALIZAR EMBEDDINGS EN LA NUBE (LOTES DE 50)
+// RUTA TEMPORAL PARA ACTUALIZAR EMBEDDINGS (Sin Auth para mantenimiento)
 app.get('/api/admin/update-embeddings', async (req, res) => {
   console.log(" Verificando estado y procesando lote...");
   try {
-    // 1. Contar cuántos faltan por actualizar
     const { count } = await supabase
       .from('articulos')
       .select('*', { count: 'exact', head: true })
@@ -271,7 +295,6 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
         return res.json({ msg: "✅ ¡TODO LISTO! No quedan artículos por actualizar." });
     }
 
-    // 2. Procesar el lote de 50
     const { data: articulos } = await supabase
       .from('articulos')
       .select('id, contenido_enriquecido')
@@ -282,11 +305,9 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
     let countActualizados = 0;
 
     for (const art of articulos) {
-      // Generar embedding
       const output = await currentExtractor(art.contenido_enriquecido, { pooling: 'mean', normalize: true });
       const embedding = Array.from(output.data);
       
-      // ✅ VERIFICACIÓN DE ERRORES AL GUARDAR CON RETURNING MINIMAL
       const { error: updateError } = await supabase
         .from('articulos')
         .update({ embedding: embedding }, { returning: 'minimal' }) 
@@ -312,4 +333,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v20.0 activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v20.0 (Multi-User Auth) activo en puerto ${PORT}`));
