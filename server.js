@@ -42,11 +42,11 @@ async function getExtractor() {
 }
 
 async function clasificarMateriaLegal(preguntaColoquial) {
-  const prompt = `Eres un experto en derecho venezolano. Identifica la MATERIA JURÍDICA principal y devuelve SOLO un objeto JSON:
+  const prompt = `Eres un experto en derecho venezolano. Devuelve SOLO un objeto JSON:
 {
   "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
-  "articulo_num": (Número si se menciona explícitamente, sino null),
-  "text_keywords": ["palabra_legal_1", "palabra_legal_2"] (Términos legales simples para búsqueda textual, ej: para "carro" usa "vehiculo", "cosa", "bien")
+  "articulo_num": (Número si se menciona, sino null),
+  "text_keywords": ["palabra1", "palabra2"] (Términos legales simples presentes en la ley, ej: para "carro" usa "vehiculo", "cosa")
 }
 INPUT: "${preguntaColoquial}"
 OUTPUT:`;
@@ -60,7 +60,10 @@ OUTPUT:`;
     let content = data.choices[0].message.content.trim();
     if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
     return JSON.parse(content);
-  } catch (error) { return { ley_id: 3, articulo_num: null, text_keywords: [] }; }
+  } catch (error) { 
+    console.error("Error en Groq:", error);
+    return { ley_id: 3, articulo_num: null, text_keywords: [] }; 
+  }
 }
 
 async function obtenerMemoria(sessionId) {
@@ -85,7 +88,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     const historial = await obtenerMemoria(safeSessionId);
 
     const clasificacion = await clasificarMateriaLegal(pregunta);
-    console.log("⚖️ Materia detectada:", clasificacion);
+    console.log("⚖️ Clasificación:", clasificacion);
 
     let articulos = [];
     const { ley_id, articulo_num, text_keywords = [] } = clasificacion;
@@ -100,7 +103,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (data && data.length > 0) articulos = data;
     }
 
-    // 2. Búsqueda Semántica con Filtro SQL
+    // 2. Búsqueda Semántica Filtrada
     if (articulos.length === 0) {
       const currentExtractor = await getExtractor();
       const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
@@ -115,14 +118,14 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       
       if (!error && data && data.length > 0) {
         articulos = data;
-        console.log(`✅ Semántica encontró ${articulos.length} artículos en Ley ID ${ley_id}.`);
+        console.log(`✅ Semántica encontró ${articulos.length} artículos.`);
       } else {
-        console.log(`⚠️ Semántica falló. Activando Fallback Textual con Keywords Legales...`);
+        console.log(`⚠️ Semántica falló. Intentando Fallback Textual...`);
         
-        // 3. Fallback Textual con Keywords Mejoradas por IA
-        // Usamos las keywords que Groq nos dio + algunas de la pregunta original
+        // 3. Fallback Textual con Keywords
         const allKeywords = [...new Set([...text_keywords, ...pregunta.split(' ').filter(w => w.length > 4)])];
-        
+        console.log("🔍 Buscando textualmente con:", allKeywords);
+
         if (allKeywords.length > 0) {
           const orQuery = allKeywords.map(k => `contenido.ilike.%${k}%,contenido_enriquecido.ilike.%${k}%`).join(',');
           
@@ -134,9 +137,19 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
             
           if (textData && textData.length > 0) {
             articulos = textData;
-            console.log(`✅ Fallback textual encontró ${articulos.length} artículos usando: ${allKeywords.join(', ')}`);
+            console.log(`✅ Fallback textual encontró ${articulos.length} artículos.`);
           } else {
-             console.log(`❌ Fallback textual tampoco encontró nada con esas keywords.`);
+             console.log(`❌ Fallback textual falló en Ley ID ${ley_id}. Probando sin filtro de ley...`);
+             
+             // 4. EMERGENCIA: Buscar en todas las leyes para debuggear
+             const { data: emergencyData } = await supabase.from('articulos')
+                .select('*, leyes(nombre)')
+                .or(orQuery)
+                .limit(3);
+                
+             if (emergencyData && emergencyData.length > 0) {
+                 console.log("🚨 EMERGENCIA: Se encontraron artículos pero en OTRAS leyes:", emergencyData.map(a => `${a.leyes.nombre} Art. ${a.numero_articulo}`));
+             }
           }
         }
       }
@@ -144,20 +157,13 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
 
     const contextoArticulos = articulos.length > 0
       ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
-      : "No se encontraron artículos específicos en la materia legal correspondiente.";
+      : "No se encontraron artículos específicos.";
 
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática.
-
-ARTÍCULOS LEGALES RECUPERADOS (DE LA MATERIA CORRECTA):
+ARTÍCULOS RECUPERADOS:
 ${contextoArticulos}
-
 PREGUNTA: "${pregunta}"
-
-INSTRUCCIONES:
-1. EMPATÍA: Inicia reconociendo el sentimiento.
-2. CITACIÓN: Cita textualmente uno de los artículos de arriba.
-3. EXPLICACIÓN: Explica cómo aplica al caso.
-4. CIERRE: "⚖️ Esto es orientación general. Consulta con un abogado."`;
+INSTRUCCIONES: Cita y explica. Si no hay artículos, dilo con empatía.`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -177,4 +183,4 @@ INSTRUCCIONES:
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v29.0 (Smart Keywords) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v30.0 (Deep Debug) activo en puerto ${PORT}`));
