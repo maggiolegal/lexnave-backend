@@ -59,21 +59,23 @@ async function getExtractor() {
   return extractor;
 }
 
-// Traductor por Abstracción Dogmática Universal
+// Traductor por Abstracción Dogmática + Palabras Puente Naturales
 async function traducirATerminosJuridicos(preguntaColoquial) {
-  const prompt = `Eres un experto en derecho venezolano. Tu ÚNICA tarea es traducir problemas humanos a CATEGORÍAS JURÍDICAS DOGMÁTICAS ESPECÍFICAS.
+  const prompt = `Eres un experto en derecho venezolano. Tu tarea es doble:
 
-REGLAS ABSOLUTAS:
-1. SI EL USUARIO MENCIONA UN ARTÍCULO EXPLÍCITO: Devuélvelo como primer término (ej: articulo_410_codigo_comercio).
-2. SI NO MENCIONA ARTÍCULOS: Identifica LA ETIQUETA DOCTRINARIA MÁS PRECISA Y TÉCNICA aplicable al caso.
-3. PROHIBIDO TERMINOLOGÍA GENÉRICA: Nunca usa "daños", "responsabilidad", "incumplimiento" o "delito" solos. Usa SIEMPRE la figura dogmática completa (ej: responsabilidad_civil_extracontractual, nulidad_relativa_contrato, tipo_penal_doloso).
-4. Formato estricto: solo términos separados por comas, sin markdown ni explicaciones.
+1. IDENTIFICAR la CATEGORÍA JURÍDICA DOGMÁTICA precisa (ej: responsabilidad_civil_extracontractual).
+2. EXTRAER 3-4 PALABRAS CLAVE NATURALES que aparezcan textualmente en los artículos de ley relacionados con este tema (ej: para choque -> daño, culpa, reparar, hecho_ilicito).
 
-EJEMPLOS DE ABSTRACCIÓN CORRECTA:
-Input: "me chocaron el carro y no paga" → Output: responsabilidad_civil_extracontractual, obligacion_de_reparar_danos, culpa_o_negligencia
-Input: "mi jefe me botó sin pagar prestaciones" → Output: despido_injustificado, prestaciones_sociales_lottt, indemnizacion_sustitutiva
-Input: "firmé un contrato bajo amenaza" → Output: vicio_consentimiento_violencia, nulidad_relativa_contrato, codigo_civil
-Input: "me detuvieron sin orden judicial" → Output: garantia_constitucional_libertad_personal, amparo_constitucional, copp_articulo_128
+REGLAS:
+- Formato estricto: CATEGORIA | palabra1, palabra2, palabra3
+- Las palabras clave deben ser simples y comunes en el texto legal venezolano.
+- Sin explicaciones, sin markdown.
+
+EJEMPLOS:
+Input: "me chocaron el carro" → Output: responsabilidad_civil_extracontractual | daño, culpa, reparar, negligencia
+Input: "no me entregan la casa" → Output: obligacion_de_entrega | vendedor, comprador, tradicion, posesion, inmueble
+Input: "me quiero divorciar" → Output: disolucion_vinculo_matrimonial | divorcio, separacion, matrimonio, conyugal
+Input: "letra de cambio no pagada" → Output: titulo_credito_cambiario | letra, endoso, librado, protesto
 
 INPUT ACTUAL: "${preguntaColoquial}"
 OUTPUT:`;
@@ -133,8 +135,15 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     const terminosTecnicos = await traducirATerminosJuridicos(pregunta);
     console.log("⚖️ Términos generados:", terminosTecnicos);
 
+    // Separar categoría dogmática de palabras clave naturales
+    const partesRespuesta = terminosTecnicos.split('|');
+    const categoriaDogmatica = partesRespuesta[0]?.trim() || "";
+    const palabrasClaveRaw = partesRespuesta[1]?.trim() || "";
+    
+    // Crear array combinado para búsquedas
+    const terminosArray = [categoriaDogmatica, ...palabrasClaveRaw.split(',').map(t => t.trim())].filter(t => t);
+    
     let articulos = [];
-    const terminosArray = terminosTecnicos.split(',').map(t => t.trim());
     const referenciaExacta = terminosArray.find(t => /^articulo_\d+_.+$/.test(t));
 
     // Búsqueda Exacta Solo Si Hay Referencia Válida
@@ -203,27 +212,19 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       }
     }
 
-    // ⚖️ FILTRO DE RELEVANCIA INTELIGENTE CON BÚSQUEDA LEXICAL AMPLIA
+    // ⚖️ FILTRO DE RELEVANCIA INTELIGENTE CON PALABRAS PUENTE
     if (articulos.length > 0) {
       const tieneCoincidenciaDogmatica = articulos.some(a => 
         terminosArray.some(t => {
           if (/^articulo_\d+/.test(t)) return false;
-          
           const contenidoLower = a.contenido_enriquecido?.toLowerCase() || '';
-          const terminoLower = t.toLowerCase();
-          
-          // Desglosar el término en sus partes (ej: responsabilidad_civil_extracontractual -> [responsabilidad, civil, extracontractual])
-          const partes = terminoLower.split('_');
-          
-          // Si AL MENOS UNA de las partes importantes (longitud > 3) está en el contenido, es relevante
-          return partes.some(parte => 
-            parte.length > 3 && contenidoLower.includes(parte)
-          );
+          // Busca coincidencia exacta de la palabra clave simple
+          return contenidoLower.includes(t.toLowerCase());
         })
       );
 
       if (!tieneCoincidenciaDogmatica) {
-        console.log("⚠️ Sin coincidencia dogmática estricta. Usando expansión semántica automática...");
+        console.log("⚠️ Sin coincidencia dogmática. Usando expansión semántica automática...");
         
         const terminosBusqueda = terminosArray
           .filter(t => !/^articulo_\d+/.test(t))
@@ -263,13 +264,13 @@ ${contextoHistorial}
 
 PREGUNTA DEL USUARIO: "${pregunta}"
 
-INSTRUCCIONES OBLIGATORIAS DE RESPUESTA:
-1. EMPATÍA ESTRUCTURAL: Si el usuario expone un problema personal, inicia SIEMPRE con "Lamento el incidente por el que estás pasando..." o "Entiendo tu preocupación...".
-2. CONFIANZA EN LA BÚSQUEDA: Los artículos recuperados arriba YA FUERON FILTRADOS POR RELEVANCIA JURÍDICA. Úsalos como base principal. Solo descártalos si son ABSOLUTAMENTE incoherentes.
-3. CITACIÓN FORZADA: DEBES CITAR AL MENOS UNO TEXTUALMENTE usando este formato exacto: "El artículo [NÚMERO] del [LEY] establece que [CONTENIDO TEXTUAL]".
-4. EXPLICACIÓN APLICADA: Después de citar, explica brevemente cómo aplica al caso en lenguaje claro.
-5. SIN ARTÍCULOS RELEVANTES: SOLO si contextoArticulos dice "No se encontraron...", responde con conocimiento general.
-6. CIERRE ÉTICO OBLIGATORIO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
+INSTRUCCIONES OBLIGATORIAS DE RESPUESTA (ESTRUCTURA COMBINADA):
+1. EMPATÍA ESTRUCTURAL: Inicia SIEMPRE reconociendo el sentimiento del usuario (ej: "Lamento el incidente...", "Entiendo tu preocupación...").
+2. FUNDAMENTO LEGAL: Cita AL MENOS UNO de los artículos recuperados TEXTUALMENTE usando este formato: "El artículo [NÚMERO] del [LEY] establece que [CONTENIDO TEXTUAL]".
+3. EXPLICACIÓN APLICADA: Después de citar, explica en lenguaje claro y cotidiano cómo ese artículo resuelve o aplica al problema específico del usuario. Conecta la ley con su realidad.
+4. CIERRE ÉTICO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."
+
+NOTA: Si los artículos recuperados son irrelevantes, ignóralos y responde con conocimiento general venezolano, pero mantén la estructura de empatía y cierre ético.`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
