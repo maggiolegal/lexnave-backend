@@ -45,7 +45,8 @@ async function clasificarMateriaLegal(preguntaColoquial) {
   const prompt = `Eres un experto en derecho venezolano. Identifica la MATERIA JURÍDICA principal y devuelve SOLO un objeto JSON:
 {
   "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
-  "articulo_num": (Número si se menciona explícitamente, sino null)
+  "articulo_num": (Número si se menciona explícitamente, sino null),
+  "text_keywords": ["palabra_legal_1", "palabra_legal_2"] (Términos legales simples para búsqueda textual, ej: para "carro" usa "vehiculo", "cosa", "bien")
 }
 INPUT: "${preguntaColoquial}"
 OUTPUT:`;
@@ -59,7 +60,7 @@ OUTPUT:`;
     let content = data.choices[0].message.content.trim();
     if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
     return JSON.parse(content);
-  } catch (error) { return { ley_id: 3, articulo_num: null }; }
+  } catch (error) { return { ley_id: 3, articulo_num: null, text_keywords: [] }; }
 }
 
 async function obtenerMemoria(sessionId) {
@@ -87,7 +88,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     console.log("⚖️ Materia detectada:", clasificacion);
 
     let articulos = [];
-    const { ley_id, articulo_num } = clasificacion;
+    const { ley_id, articulo_num, text_keywords = [] } = clasificacion;
 
     // 1. Búsqueda Exacta
     if (articulo_num && ley_id) {
@@ -99,7 +100,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (data && data.length > 0) articulos = data;
     }
 
-    // 2. Búsqueda Semántica con Filtro SQL (v27.0)
+    // 2. Búsqueda Semántica con Filtro SQL
     if (articulos.length === 0) {
       const currentExtractor = await getExtractor();
       const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
@@ -116,12 +117,14 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
         articulos = data;
         console.log(`✅ Semántica encontró ${articulos.length} artículos en Ley ID ${ley_id}.`);
       } else {
-        console.log(`⚠️ Semántica falló en Ley ID ${ley_id}. Activando Fallback Textual...`);
+        console.log(`⚠️ Semántica falló. Activando Fallback Textual con Keywords Legales...`);
         
-        // 3. Fallback Textual Agresivo (Solo en la materia correcta)
-        const keywords = pregunta.split(' ').filter(w => w.length > 4).map(w => w.toLowerCase());
-        if (keywords.length > 0) {
-          const orQuery = keywords.map(k => `contenido.ilike.%${k}%,contenido_enriquecido.ilike.%${k}%`).join(',');
+        // 3. Fallback Textual con Keywords Mejoradas por IA
+        // Usamos las keywords que Groq nos dio + algunas de la pregunta original
+        const allKeywords = [...new Set([...text_keywords, ...pregunta.split(' ').filter(w => w.length > 4)])];
+        
+        if (allKeywords.length > 0) {
+          const orQuery = allKeywords.map(k => `contenido.ilike.%${k}%,contenido_enriquecido.ilike.%${k}%`).join(',');
           
           const { data: textData } = await supabase.from('articulos')
             .select('*, leyes(nombre)')
@@ -131,7 +134,9 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
             
           if (textData && textData.length > 0) {
             articulos = textData;
-            console.log(`✅ Fallback textual encontró ${articulos.length} artículos en Ley ID ${ley_id}.`);
+            console.log(`✅ Fallback textual encontró ${articulos.length} artículos usando: ${allKeywords.join(', ')}`);
+          } else {
+             console.log(`❌ Fallback textual tampoco encontró nada con esas keywords.`);
           }
         }
       }
@@ -172,4 +177,4 @@ INSTRUCCIONES:
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v28.0 (Hybrid SQL Filter) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v29.0 (Smart Keywords) activo en puerto ${PORT}`));
