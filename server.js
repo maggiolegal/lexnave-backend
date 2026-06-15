@@ -203,7 +203,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       }
     }
 
-    // ⚖️ FILTRO DE RELEVANCIA INTELIGENTE CON EXPANSIÓN SEMÁNTICA AUTOMÁTICA
+    // ⚖️ FILTRO DE RELEVANCIA INTELIGENTE CON BÚSQUEDA LEXICAL AMPLIA
     if (articulos.length > 0) {
       const tieneCoincidenciaDogmatica = articulos.some(a => 
         terminosArray.some(t => {
@@ -211,17 +211,19 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
           
           const contenidoLower = a.contenido_enriquecido?.toLowerCase() || '';
           const terminoLower = t.toLowerCase();
-          const raiz = terminoLower.split('_')[0];
           
-          // Coincidencia exacta, por raíz o parcial (para raíces largas)
-          return contenidoLower.includes(terminoLower) || 
-                 contenidoLower.includes(raiz) || 
-                 (raiz.length > 4 && contenidoLower.includes(raiz.substring(0, Math.min(raiz.length, 6))));
+          // Desglosar el término en sus partes (ej: responsabilidad_civil_extracontractual -> [responsabilidad, civil, extracontractual])
+          const partes = terminoLower.split('_');
+          
+          // Si AL MENOS UNA de las partes importantes (longitud > 3) está en el contenido, es relevante
+          return partes.some(parte => 
+            parte.length > 3 && contenidoLower.includes(parte)
+          );
         })
       );
 
       if (!tieneCoincidenciaDogmatica) {
-        console.log("⚠️ Sin coincidencia dogmática. Usando expansión semántica automática...");
+        console.log("⚠️ Sin coincidencia dogmática estricta. Usando expansión semántica automática...");
         
         const terminosBusqueda = terminosArray
           .filter(t => !/^articulo_\d+/.test(t))
