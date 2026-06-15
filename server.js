@@ -108,48 +108,54 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       const { data, error } = await supabase.rpc('match_articulos', { 
         query_embedding: queryEmbedding, 
         match_threshold: 0.15, 
-        match_count: 15 
+        match_count: 20 // Aumentamos a 20 para tener más margen
       });
       
       if (!error && data) {
-        const resultadosFiltrados = data.filter(a => a.ley_id === ley_id);
-        articulos = resultadosFiltrados.length > 0 ? resultadosFiltrados.slice(0, 3) : data.slice(0, 3);
-        console.log(`✅ Artículos encontrados: ${articulos.length}`);
+        console.log(`🔍 Raw results count: ${data.length}`);
         
-        // DEBUGGING CRÍTICO: Verificar qué campos vienen de la BD
-        if (articulos.length > 0) {
-            console.log("🔍 PRIMER ARTÍCULO RECUPERADO:", JSON.stringify(articulos[0]));
+        // FILTRO AGRESIVO CON DEBUGGING
+        const resultadosFiltrados = data.filter(a => {
+            // Convertimos ambos a número para evitar fallos de tipo "3" vs 3
+            const itemLeyId = Number(a.ley_id);
+            const targetLeyId = Number(ley_id);
+            const match = itemLeyId === targetLeyId;
+            if (!match) {
+                console.log(`❌ Descartado Art. ${a.numero_articulo} (Ley ID: ${itemLeyId}) != Target: ${targetLeyId}`);
+            }
+            return match;
+        });
+        
+        console.log(`✅ Resultados filtrados para Ley ID ${ley_id}: ${resultadosFiltrados.length}`);
+        
+        if (resultadosFiltrados.length > 0) {
+          articulos = resultadosFiltrados.slice(0, 3);
+        } else {
+          // Si no hay nada de esa ley, mostramos los top 3 generales pero avisamos
+          articulos = data.slice(0, 3);
+          console.log(`⚠️ SIN RESULTADOS EN LA MATERIA. Mostrando generales.`);
         }
       }
     }
 
-    // CONSTRUCCIÓN DEL CONTEXTO (Aquí suele estar el fallo)
     const contextoArticulos = articulos.length > 0
-      ? articulos.map((a, i) => {
-          // Aseguramos que si no hay nombre de ley, ponga algo
-          const leyNombre = a.leyes?.nombre || `Ley ID ${a.ley_id}`;
-          // Aseguramos que el contenido exista
-          const contenido = a.contenido || "Contenido no disponible en BD";
-          return `[${i+1}] ${leyNombre} Art. ${a.numero_articulo}: "${contenido}"`;
-        }).join('\n\n')
+      ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "No se encontraron artículos específicos.";
 
-    console.log("📄 CONTEXTO ENVIADO AL LLM:\n", contextoArticulos);
+    console.log("📄 CONTEXTO FINAL:\n", contextoArticulos);
 
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática.
 
-ARTÍCULOS LEGALES RECUPERADOS (ÚSALOS OBLIGATORIAMENTE):
+ARTÍCULOS LEGALES RECUPERADOS:
 ${contextoArticulos}
 
-PREGUNTA DEL USUARIO: "${pregunta}"
+PREGUNTA: "${pregunta}"
 
 INSTRUCCIONES:
 1. EMPATÍA: Inicia reconociendo el sentimiento.
-2. CITACIÓN: Cita textualmente uno de los artículos de arriba: "El artículo [NUM] del [LEY] establece que [TEXTO]".
+2. CITACIÓN: Cita textualmente uno de los artículos de arriba.
 3. EXPLICACIÓN: Explica cómo aplica al caso.
-4. CIERRE: "⚖️ Esto es orientación general. Consulta con un abogado."
-
-SI LOS ARTÍCULOS DE ARRIBA SON RELEVANTES, ÚSALOS. NO DIGAS QUE NO HAY ARTÍCULOS SI LA LISTA DE ARRIBA TIENE CONTENIDO.`;
+4. CIERRE: "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -169,4 +175,4 @@ SI LOS ARTÍCULOS DE ARRIBA SON RELEVANTES, ÚSALOS. NO DIGAS QUE NO HAY ARTÍCU
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v24.0 (Debug Context) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v25.0 (Strict Filter) activo en puerto ${PORT}`));
