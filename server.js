@@ -41,17 +41,17 @@ async function getExtractor() {
   return extractor;
 }
 
-// ✅ TRADUCTOR SEMÁNTICO: Solo extrae artículos específicos si existen
-async function extraerReferenciasLegales(preguntaColoquial) {
-  const prompt = `Analiza la siguiente pregunta legal. 
-1. Si el usuario menciona un ARTÍCULO ESPECÍFICO (ej: art 410, artículo 1167), devuélvelo en formato: articulo_NUMERO_ley (ej: articulo_410_codigo_comercio).
-2. Si NO menciona artículos, devuelve simplemente: CONSULTA_GENERAL.
-3. No añadas nada más.
+// ✅ CLASIFICADOR DE MATERIA LEGAL (Sin palabras clave manuales)
+async function clasificarMateriaLegal(preguntaColoquial) {
+  const prompt = `Eres un experto en derecho venezolano. Identifica la MATERIA JURÍDICA principal de la pregunta y devuelve SOLO un objeto JSON:
+{
+  "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
+  "articulo_num": (Número si se menciona explícitamente, sino null)
+}
 
-EJEMPLOS:
-Input: "me chocaron" → Output: CONSULTA_GENERAL
-Input: "que dice el art 1167 civil" → Output: articulo_1167_codigo_civil
-Input: "compré un carro y no me lo dan" → Output: CONSULTA_GENERAL
+REGLAS:
+- Analiza el contexto: "letra de cambio" = Comercio(4); "choque/daños" = Civil(3); "despido" = Laboral(8); "herida/golpe" = Penal(6).
+- No agregues texto fuera del JSON.
 
 INPUT: "${preguntaColoquial}"
 OUTPUT:`;
@@ -63,8 +63,13 @@ OUTPUT:`;
       body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.0 })
     });
     const data = await res.json();
-    return data.choices[0].message.content.trim();
-  } catch (error) { return "CONSULTA_GENERAL"; }
+    let content = data.choices[0].message.content.trim();
+    if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
+    return JSON.parse(content);
+  } catch (error) {
+    console.error("Error clasificando materia:", error);
+    return { ley_id: 3, articulo_num: null }; // Fallback a Civil
+  }
 }
 
 async function obtenerMemoria(sessionId) {
@@ -88,55 +93,52 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     await guardarMensaje(safeSessionId, 'user', pregunta);
     const historial = await obtenerMemoria(safeSessionId);
 
+    // 1. Clasificación de Materia y Artículo
+    const clasificacion = await clasificarMateriaLegal(pregunta);
+    console.log("⚖️ Materia detectada:", clasificacion);
+
     let articulos = [];
-    const referencia = await extraerReferenciasLegales(pregunta);
+    const { ley_id, articulo_num } = clasificacion;
 
-    // 1. Búsqueda Exacta si se menciona un artículo
-    if (referencia !== "CONSULTA_GENERAL") {
-      console.log("🎯 Referencia exacta detectada:", referencia);
-      const partes = referencia.split('_'); 
-      const numArt = partes[1];
-      const leyRef = partes.slice(2).join('_').toLowerCase();
+    // 2. Búsqueda Exacta si hay artículo específico
+    if (articulo_num && ley_id) {
+      const { data } = await supabase.from('articulos')
+        .select('*, leyes(nombre)')
+        .eq('numero_articulo', articulo_num.toString())
+        .eq('ley_id', ley_id)
+        .limit(1);
       
-      const mapLeyes = { 'constitucion': 1, 'propiedad_horizontal': 2, 'codigo_civil': 3, 'codigo_comercio': 4, 'coppp': 5, 'codigo_penal': 6, 'codigo_procedimiento_civil': 7, 'lottt': 8 };
-      const leyKey = Object.keys(mapLeyes).find(k => leyRef.includes(k));
-      const leyId = leyKey ? mapLeyes[leyKey] : null;
-
-      if (leyId) {
-        const { data } = await supabase.from('articulos').select('*, leyes(nombre)').eq('numero_articulo', numArt).eq('ley_id', leyId).limit(1);
-        if (data && data.length > 0) articulos = data;
+      if (data && data.length > 0) {
+        articulos = data;
+        console.log(`🎯 Artículo exacto encontrado: Art. ${articulo_num} Ley ID ${ley_id}`);
       }
     }
 
-    // 2. Búsqueda Semántica Pura (La magia de la traducción conceptual)
+    // 3. Búsqueda Semántica Filtrada por Materia
     if (articulos.length === 0) {
       console.log("🔍 Búsqueda semántica pura...");
       const currentExtractor = await getExtractor();
-      // El modelo transforma "no me entregan el carro" en un vector cercano a "obligación de entregar"
       const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
       const queryEmbedding = Array.from(output.data);
 
+      // Traemos 15 candidatos para asegurar que haya suficientes de la materia correcta
       const { data, error } = await supabase.rpc('match_articulos', { 
         query_embedding: queryEmbedding, 
         match_threshold: 0.15, 
-        match_count: 5 
+        match_count: 15 
       });
       
-      if (!error && data && data.length > 0) {
-        articulos = data;
-        console.log(`✅ Semántica encontró ${data.length} artículos.`);
-      } else {
-        // 3. Fallback Textual por Raíces (Sin diccionarios)
-        console.log("⚠️ Fallback textual activado...");
-        // Tomamos las palabras significativas de la pregunta (más de 3 letras)
-        const palabrasClave = pregunta.split(' ')
-          .filter(p => p.length > 3)
-          .map(p => `contenido_enriquecido.ilike.%${p}%`)
-          .join(',');
+      if (!error && data) {
+        // FILTRO DE MATERIA EN MEMORIA: La clave del éxito
+        const resultadosFiltrados = data.filter(a => a.ley_id === ley_id);
         
-        if (palabrasClave) {
-          const { data: textData } = await supabase.from('articulos').select('*, leyes(nombre)').or(palabrasClave).limit(3);
-          if (textData) articulos = textData;
+        if (resultadosFiltrados.length > 0) {
+          articulos = resultadosFiltrados.slice(0, 3);
+          console.log(`✅ Semántica encontró ${articulos.length} artículos en Materia ID ${ley_id}.`);
+        } else {
+          // Si no hay nada de esa materia específica, mostramos los generales
+          articulos = data.slice(0, 3);
+          console.log(`⚠️ Sin resultados específicos en Materia ID ${ley_id}. Mostrando generales.`);
         }
       }
     }
@@ -147,7 +149,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
 
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática.
 
-ARTÍCULOS RECUPERADOS:
+ARTÍCULOS RECUPERADOS (Filtrados por materia legal relevante):
 ${contextoArticulos}
 
 PREGUNTA: "${pregunta}"
@@ -178,4 +180,4 @@ Si no hay artículos relevantes, dilo con empatía y da orientación general.`;
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v22.0 (Semantic Pure) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v23.0 (Materia Filter) activo en puerto ${PORT}`));
