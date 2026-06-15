@@ -41,21 +41,14 @@ async function getExtractor() {
   return extractor;
 }
 
-// ✅ CLASIFICADOR DE MATERIA LEGAL (Sin palabras clave manuales)
 async function clasificarMateriaLegal(preguntaColoquial) {
-  const prompt = `Eres un experto en derecho venezolano. Identifica la MATERIA JURÍDICA principal de la pregunta y devuelve SOLO un objeto JSON:
+  const prompt = `Eres un experto en derecho venezolano. Identifica la MATERIA JURÍDICA principal y devuelve SOLO un objeto JSON:
 {
   "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
   "articulo_num": (Número si se menciona explícitamente, sino null)
 }
-
-REGLAS:
-- Analiza el contexto: "letra de cambio" = Comercio(4); "choque/daños" = Civil(3); "despido" = Laboral(8); "herida/golpe" = Penal(6).
-- No agregues texto fuera del JSON.
-
 INPUT: "${preguntaColoquial}"
 OUTPUT:`;
-
   try {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -66,10 +59,7 @@ OUTPUT:`;
     let content = data.choices[0].message.content.trim();
     if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
     return JSON.parse(content);
-  } catch (error) {
-    console.error("Error clasificando materia:", error);
-    return { ley_id: 3, articulo_num: null }; // Fallback a Civil
-  }
+  } catch (error) { return { ley_id: 3, articulo_num: null }; }
 }
 
 async function obtenerMemoria(sessionId) {
@@ -93,35 +83,28 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     await guardarMensaje(safeSessionId, 'user', pregunta);
     const historial = await obtenerMemoria(safeSessionId);
 
-    // 1. Clasificación de Materia y Artículo
     const clasificacion = await clasificarMateriaLegal(pregunta);
     console.log("⚖️ Materia detectada:", clasificacion);
 
     let articulos = [];
     const { ley_id, articulo_num } = clasificacion;
 
-    // 2. Búsqueda Exacta si hay artículo específico
+    // 1. Búsqueda Exacta
     if (articulo_num && ley_id) {
       const { data } = await supabase.from('articulos')
         .select('*, leyes(nombre)')
         .eq('numero_articulo', articulo_num.toString())
         .eq('ley_id', ley_id)
         .limit(1);
-      
-      if (data && data.length > 0) {
-        articulos = data;
-        console.log(`🎯 Artículo exacto encontrado: Art. ${articulo_num} Ley ID ${ley_id}`);
-      }
+      if (data && data.length > 0) articulos = data;
     }
 
-    // 3. Búsqueda Semántica Filtrada por Materia
+    // 2. Búsqueda Semántica Filtrada
     if (articulos.length === 0) {
-      console.log("🔍 Búsqueda semántica pura...");
       const currentExtractor = await getExtractor();
       const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
       const queryEmbedding = Array.from(output.data);
 
-      // Traemos 15 candidatos para asegurar que haya suficientes de la materia correcta
       const { data, error } = await supabase.rpc('match_articulos', { 
         query_embedding: queryEmbedding, 
         match_threshold: 0.15, 
@@ -129,38 +112,44 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       });
       
       if (!error && data) {
-        // FILTRO DE MATERIA EN MEMORIA: La clave del éxito
         const resultadosFiltrados = data.filter(a => a.ley_id === ley_id);
+        articulos = resultadosFiltrados.length > 0 ? resultadosFiltrados.slice(0, 3) : data.slice(0, 3);
+        console.log(`✅ Artículos encontrados: ${articulos.length}`);
         
-        if (resultadosFiltrados.length > 0) {
-          articulos = resultadosFiltrados.slice(0, 3);
-          console.log(`✅ Semántica encontró ${articulos.length} artículos en Materia ID ${ley_id}.`);
-        } else {
-          // Si no hay nada de esa materia específica, mostramos los generales
-          articulos = data.slice(0, 3);
-          console.log(`⚠️ Sin resultados específicos en Materia ID ${ley_id}. Mostrando generales.`);
+        // DEBUGGING CRÍTICO: Verificar qué campos vienen de la BD
+        if (articulos.length > 0) {
+            console.log("🔍 PRIMER ARTÍCULO RECUPERADO:", JSON.stringify(articulos[0]));
         }
       }
     }
 
-    const contextoArticulos = articulos.length 
-      ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n')
+    // CONSTRUCCIÓN DEL CONTEXTO (Aquí suele estar el fallo)
+    const contextoArticulos = articulos.length > 0
+      ? articulos.map((a, i) => {
+          // Aseguramos que si no hay nombre de ley, ponga algo
+          const leyNombre = a.leyes?.nombre || `Ley ID ${a.ley_id}`;
+          // Aseguramos que el contenido exista
+          const contenido = a.contenido || "Contenido no disponible en BD";
+          return `[${i+1}] ${leyNombre} Art. ${a.numero_articulo}: "${contenido}"`;
+        }).join('\n\n')
       : "No se encontraron artículos específicos.";
+
+    console.log("📄 CONTEXTO ENVIADO AL LLM:\n", contextoArticulos);
 
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática.
 
-ARTÍCULOS RECUPERADOS (Filtrados por materia legal relevante):
+ARTÍCULOS LEGALES RECUPERADOS (ÚSALOS OBLIGATORIAMENTE):
 ${contextoArticulos}
 
-PREGUNTA: "${pregunta}"
+PREGUNTA DEL USUARIO: "${pregunta}"
 
 INSTRUCCIONES:
-1. EMPATÍA: Inicia reconociendo el sentimiento del usuario.
-2. CITACIÓN: Cita textualmente al menos un artículo relevante: "El artículo [NUM] del [LEY] establece que [TEXTO]".
-3. EXPLICACIÓN: Explica cómo aplica al caso en lenguaje simple.
+1. EMPATÍA: Inicia reconociendo el sentimiento.
+2. CITACIÓN: Cita textualmente uno de los artículos de arriba: "El artículo [NUM] del [LEY] establece que [TEXTO]".
+3. EXPLICACIÓN: Explica cómo aplica al caso.
 4. CIERRE: "⚖️ Esto es orientación general. Consulta con un abogado."
 
-Si no hay artículos relevantes, dilo con empatía y da orientación general.`;
+SI LOS ARTÍCULOS DE ARRIBA SON RELEVANTES, ÚSALOS. NO DIGAS QUE NO HAY ARTÍCULOS SI LA LISTA DE ARRIBA TIENE CONTENIDO.`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -180,4 +169,4 @@ Si no hay artículos relevantes, dilo con empatía y da orientación general.`;
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v23.0 (Materia Filter) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v24.0 (Debug Context) activo en puerto ${PORT}`));
