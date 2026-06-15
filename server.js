@@ -99,54 +99,35 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (data && data.length > 0) articulos = data;
     }
 
-    // 2. Búsqueda Semántica Filtrada
+    // 2. Búsqueda Semántica CON FILTRO DE MATERIA EN SQL
     if (articulos.length === 0) {
       const currentExtractor = await getExtractor();
       const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
       const queryEmbedding = Array.from(output.data);
 
+      // LLAMADA A LA NUEVA FUNCIÓN SQL QUE FILTRA POR LEY_ID
       const { data, error } = await supabase.rpc('match_articulos', { 
         query_embedding: queryEmbedding, 
         match_threshold: 0.15, 
-        match_count: 20 // Aumentamos a 20 para tener más margen
+        match_count: 5,
+        filter_ley_id: ley_id // <--- AQUÍ ESTÁ LA MAGIA
       });
       
-      if (!error && data) {
-        console.log(`🔍 Raw results count: ${data.length}`);
-        
-        // FILTRO AGRESIVO CON DEBUGGING
-        const resultadosFiltrados = data.filter(a => {
-            // Convertimos ambos a número para evitar fallos de tipo "3" vs 3
-            const itemLeyId = Number(a.ley_id);
-            const targetLeyId = Number(ley_id);
-            const match = itemLeyId === targetLeyId;
-            if (!match) {
-                console.log(`❌ Descartado Art. ${a.numero_articulo} (Ley ID: ${itemLeyId}) != Target: ${targetLeyId}`);
-            }
-            return match;
-        });
-        
-        console.log(`✅ Resultados filtrados para Ley ID ${ley_id}: ${resultadosFiltrados.length}`);
-        
-        if (resultadosFiltrados.length > 0) {
-          articulos = resultadosFiltrados.slice(0, 3);
-        } else {
-          // Si no hay nada de esa ley, mostramos los top 3 generales pero avisamos
-          articulos = data.slice(0, 3);
-          console.log(`⚠️ SIN RESULTADOS EN LA MATERIA. Mostrando generales.`);
-        }
+      if (!error && data && data.length > 0) {
+        articulos = data;
+        console.log(`✅ Semántica encontró ${articulos.length} artículos en Ley ID ${ley_id}.`);
+      } else {
+        console.log(`⚠️ Semántica falló en Ley ID ${ley_id}.`);
       }
     }
 
     const contextoArticulos = articulos.length > 0
       ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
-      : "No se encontraron artículos específicos.";
-
-    console.log("📄 CONTEXTO FINAL:\n", contextoArticulos);
+      : "No se encontraron artículos específicos en la materia legal correspondiente.";
 
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática.
 
-ARTÍCULOS LEGALES RECUPERADOS:
+ARTÍCULOS LEGALES RECUPERADOS (DE LA MATERIA CORRECTA):
 ${contextoArticulos}
 
 PREGUNTA: "${pregunta}"
@@ -175,4 +156,4 @@ INSTRUCCIONES:
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v25.0 (Strict Filter) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v27.0 (SQL Filter) activo en puerto ${PORT}`));
