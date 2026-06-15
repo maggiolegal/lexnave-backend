@@ -99,25 +99,41 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (data && data.length > 0) articulos = data;
     }
 
-    // 2. Búsqueda Semántica CON FILTRO DE MATERIA EN SQL
+    // 2. Búsqueda Semántica con Filtro SQL (v27.0)
     if (articulos.length === 0) {
       const currentExtractor = await getExtractor();
       const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
       const queryEmbedding = Array.from(output.data);
 
-      // LLAMADA A LA NUEVA FUNCIÓN SQL QUE FILTRA POR LEY_ID
       const { data, error } = await supabase.rpc('match_articulos', { 
         query_embedding: queryEmbedding, 
         match_threshold: 0.15, 
         match_count: 5,
-        filter_ley_id: ley_id // <--- AQUÍ ESTÁ LA MAGIA
+        filter_ley_id: ley_id 
       });
       
       if (!error && data && data.length > 0) {
         articulos = data;
         console.log(`✅ Semántica encontró ${articulos.length} artículos en Ley ID ${ley_id}.`);
       } else {
-        console.log(`⚠️ Semántica falló en Ley ID ${ley_id}.`);
+        console.log(`⚠️ Semántica falló en Ley ID ${ley_id}. Activando Fallback Textual...`);
+        
+        // 3. Fallback Textual Agresivo (Solo en la materia correcta)
+        const keywords = pregunta.split(' ').filter(w => w.length > 4).map(w => w.toLowerCase());
+        if (keywords.length > 0) {
+          const orQuery = keywords.map(k => `contenido.ilike.%${k}%,contenido_enriquecido.ilike.%${k}%`).join(',');
+          
+          const { data: textData } = await supabase.from('articulos')
+            .select('*, leyes(nombre)')
+            .eq('ley_id', ley_id)
+            .or(orQuery)
+            .limit(3);
+            
+          if (textData && textData.length > 0) {
+            articulos = textData;
+            console.log(`✅ Fallback textual encontró ${articulos.length} artículos en Ley ID ${ley_id}.`);
+          }
+        }
       }
     }
 
@@ -156,4 +172,4 @@ INSTRUCCIONES:
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v27.0 (SQL Filter) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v28.0 (Hybrid SQL Filter) activo en puerto ${PORT}`));
