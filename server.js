@@ -41,14 +41,13 @@ async function getExtractor() {
   return extractor;
 }
 
-// ✅ CLASIFICADOR CON CONTEXTO Y CLARIFICACIÓN ACTIVA
+// ✅ CLASIFICADOR CON CONTEXTO Y CLARIFICACIÓN ESTRICTA
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
-  // Formateamos el historial para que Groq entienda el contexto
   const contextoHistorial = historialReciente.length > 0 
-    ? `CONTEXTO PREVIO DE LA CONVERSACIÓN:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
+    ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
     : '';
 
-  const prompt = `Eres un experto en derecho venezolano. Analiza la pregunta actual junto con el contexto previo y devuelve SOLO JSON:
+  const prompt = `Eres un experto en derecho venezolano. Analiza la pregunta y devuelve SOLO JSON:
 {
   "needs_clarification": boolean,
   "clarification_question": string (solo si needs_clarification es true),
@@ -57,16 +56,16 @@ async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
 }
 
-REGLAS DE CLARIFICACIÓN (ESTRICTAS):
-- Solo usa needs_clarification: true si la pregunta es AMBIGUA entre materias legales distintas (ej: "me deben dinero" puede ser Civil, Mercantil o Laboral).
-- NO preguntes si el contexto previo ya aclara la situación.
-- Si el usuario responde a una aclaración anterior (ej: dice "consensuado" después de hablar de divorcio), usa el contexto para asignar la ley correcta (Civil 3) y keywords relevantes.
+REGLAS CRÍTICAS DE CLASIFICACIÓN:
+- "Choque/Accidente de carro" SIN mención de heridos = CIVIL (3) [Daños materiales]. Keywords: ["daños", "perjuicios", "responsabilidad_civil", "vehiculo"].
+- "Choque/Accidente" CON heridos/lesiones = PENAL (6). Keywords: ["lesiones", "homicidio", "culpa"].
+- "Me deben dinero" AMBIGUO = CLARIFICAR. Pregunta: "¿Es por un préstamo personal, una factura comercial o un salario?".
+- "Despido/Laboral" = LOTTT (8).
+- "Divorcio/Familia" = CIVIL (3).
 
-REGLAS DE KEYWORDS:
-- Divorcio/Matrimonio: ["divorcio", "matrimonio", "vinculo", "separacion"]. Ley: 3.
-- Compraventa/Entrega: ["vendedor", "comprador", "cosa_vendida", "entrega", "precio"]. Ley: 3.
-- Lesiones/Golpes: ["lesiones", "golpe", "dolo", "pena", "integridad"]. Ley: 6.
-- Títulos Valores: ["letra", "cambio", "cheque", "endoso", "librado"]. Ley: 4.
+REGLAS DE CLARIFICACIÓN:
+- Usa needs_clarification: true SIEMPRE que la pregunta pueda ser Civil, Penal o Laboral indistintamente.
+- Ejemplo: "Me golpearon" -> ¿Fue una agresión intencional (Penal) o un accidente (Civil)?
 
 ${contextoHistorial}
 PREGUNTA ACTUAL: "${preguntaColoquial}"
@@ -99,7 +98,6 @@ async function guardarMensaje(sessionId, role, content) {
   await supabase.from('chat_history').insert({ session_id: sessionId, role, content });
 }
 
-// ✅ RUTA DE CONSULTA PRINCIPAL CON CONTEXTO
 app.post('/api/consultar', verifyAuth, async (req, res) => {
   try {
     const { pregunta, sessionId: clientSessionId } = req.body;
@@ -108,15 +106,11 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
 
     console.log(`📨 [${userId.substring(0,8)}...] Pregunta:`, pregunta);
     await guardarMensaje(safeSessionId, 'user', pregunta);
-    
-    // Obtenemos el historial para pasárselo al clasificador
     const historial = await obtenerMemoria(safeSessionId);
 
-    // Pasamos el historial a la función de clasificación
     const clasificacion = await clasificarMateriaLegal(pregunta, historial);
     console.log("⚖️ Clasificación:", clasificacion);
 
-    // 1. VERIFICAR SI NECESITA CLARIFICACIÓN
     if (clasificacion.needs_clarification) {
       const respuestaClarificacion = clasificacion.clarification_question || "¿Podrías especificar un poco más tu consulta legal?";
       await guardarMensaje(safeSessionId, 'assistant', respuestaClarificacion);
@@ -130,7 +124,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     let articulos = [];
     const { ley_id, articulo_num, text_keywords = [] } = clasificacion;
 
-    // 2. Búsqueda Exacta por Artículo
+    // 1. Búsqueda Exacta
     if (articulo_num && ley_id) {
       const { data } = await supabase.from('articulos')
         .select('*, leyes(nombre)')
@@ -140,7 +134,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (data && data.length > 0) articulos = data;
     }
 
-    // 3. Búsqueda Semántica Filtrada
+    // 2. Búsqueda Semántica
     if (articulos.length === 0) {
       try {
         const currentExtractor = await getExtractor();
@@ -161,7 +155,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       } catch (e) { console.error("Error semántico:", e); }
     }
 
-    // 4. Búsqueda Textual Agresiva
+    // 3. Búsqueda Textual Agresiva
     if (articulos.length === 0 && text_keywords.length > 0) {
       console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva...`);
       
@@ -188,16 +182,15 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
 
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática.
 
-ARTÍCULOS RECUPERADOS DE LA BASE DE DATOS:
+ARTÍCULOS RECUPERADOS:
 ${contextoArticulos}
 
-PREGUNTA DEL USUARIO: "${pregunta}"
+PREGUNTA: "${pregunta}"
 
-INSTRUCCIONES OBLIGATORIAS:
-1. SI HAY ARTÍCULOS ARRIBA: ÚSALOS SIEMPRE COMO FUNDAMENTO. EXPLICA CÓMO APLICAN AL CASO.
+INSTRUCCIONES:
+1. SI HAY ARTÍCULOS: ÚSALOS COMO FUNDAMENTO. EXPLICA SU APLICACIÓN AL CASO.
 2. SI NO HAY ARTÍCULOS: RESPONDE CON ORIENTACIÓN GENERAL BASADA EN TU CONOCIMIENTO LEGAL VENEZOLANO, PERO ACLARA QUE NO SE ENCONTRARON ARTÍCULOS ESPECÍFICOS EN LA BASE DE DATOS ACTUAL.
-3. ESTRUCTURA: Empatia -> Citación/Explicación -> Cierre ético.
-4. CIERRE ÉTICO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
+3. CIERRE ÉTICO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -269,4 +262,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v40.0 (Context Aware) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v41.0 (Strict Classification) activo en puerto ${PORT}`));
