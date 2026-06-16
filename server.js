@@ -41,7 +41,6 @@ async function getExtractor() {
   return extractor;
 }
 
-// ✅ CLASIFICADOR CON CONTEXTO Y CLARIFICACIÓN ESTRICTA
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const contextoHistorial = historialReciente.length > 0 
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
@@ -50,22 +49,16 @@ async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const prompt = `Eres un experto en derecho venezolano. Analiza la pregunta y devuelve SOLO JSON:
 {
   "needs_clarification": boolean,
-  "clarification_question": string (solo si needs_clarification es true),
+  "clarification_question": string,
   "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
   "articulo_num": (Número si se menciona, sino null),
   "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
 }
 
-REGLAS CRÍTICAS DE CLASIFICACIÓN:
-- "Choque/Accidente de carro" SIN mención de heridos = CIVIL (3) [Daños materiales]. Keywords: ["daños", "perjuicios", "responsabilidad_civil", "vehiculo"].
-- "Choque/Accidente" CON heridos/lesiones = PENAL (6). Keywords: ["lesiones", "homicidio", "culpa"].
-- "Me deben dinero" AMBIGUO = CLARIFICAR. Pregunta: "¿Es por un préstamo personal, una factura comercial o un salario?".
-- "Despido/Laboral" = LOTTT (8).
-- "Divorcio/Familia" = CIVIL (3).
-
-REGLAS DE CLARIFICACIÓN:
-- Usa needs_clarification: true SIEMPRE que la pregunta pueda ser Civil, Penal o Laboral indistintamente.
-- Ejemplo: "Me golpearon" -> ¿Fue una agresión intencional (Penal) o un accidente (Civil)?
+REGLAS CRÍTICAS:
+- "Choque/Accidente" SIN heridos = CIVIL (3). Keywords: ["daños", "perjuicios", "responsabilidad_civil", "vehiculo"].
+- "Choque" CON heridos = PENAL (6). Keywords: ["lesiones", "homicidio", "culpa"].
+- Ambigüedad Civil/Penal/Laboral = needs_clarification: true.
 
 ${contextoHistorial}
 PREGUNTA ACTUAL: "${preguntaColoquial}"
@@ -82,7 +75,6 @@ OUTPUT:`;
     if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
     return JSON.parse(content);
   } catch (error) { 
-    console.error("Error en clasificación:", error);
     return { needs_clarification: false, ley_id: 3, articulo_num: null, text_keywords: [] }; 
   }
 }
@@ -114,40 +106,23 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     if (clasificacion.needs_clarification) {
       const respuestaClarificacion = clasificacion.clarification_question || "¿Podrías especificar un poco más tu consulta legal?";
       await guardarMensaje(safeSessionId, 'assistant', respuestaClarificacion);
-      return res.json({ 
-        respuesta: respuestaClarificacion, 
-        sessionId: safeSessionId,
-        needs_clarification: true 
-      });
+      return res.json({ respuesta: respuestaClarificacion, sessionId: safeSessionId, needs_clarification: true });
     }
 
     let articulos = [];
     const { ley_id, articulo_num, text_keywords = [] } = clasificacion;
 
-    // 1. Búsqueda Exacta
     if (articulo_num && ley_id) {
-      const { data } = await supabase.from('articulos')
-        .select('*, leyes(nombre)')
-        .eq('numero_articulo', articulo_num.toString())
-        .eq('ley_id', ley_id)
-        .limit(1);
+      const { data } = await supabase.from('articulos').select('*, leyes(nombre)').eq('numero_articulo', articulo_num.toString()).eq('ley_id', ley_id).limit(1);
       if (data && data.length > 0) articulos = data;
     }
 
-    // 2. Búsqueda Semántica
     if (articulos.length === 0) {
       try {
         const currentExtractor = await getExtractor();
         const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
         const queryEmbedding = Array.from(output.data);
-
-        const { data, error } = await supabase.rpc('match_articulos', { 
-          query_embedding: queryEmbedding, 
-          match_threshold: 0.15, 
-          match_count: 5,
-          filter_ley_id: ley_id 
-        });
-        
+        const { data, error } = await supabase.rpc('match_articulos', { query_embedding: queryEmbedding, match_threshold: 0.15, match_count: 5, filter_ley_id: ley_id });
         if (!error && data && data.length > 0) {
           articulos = data;
           console.log(`✅ Semántica encontró ${articulos.length} artículos.`);
@@ -155,21 +130,10 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       } catch (e) { console.error("Error semántico:", e); }
     }
 
-    // 3. Búsqueda Textual Agresiva
     if (articulos.length === 0 && text_keywords.length > 0) {
       console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva...`);
-      
-      const orConditions = text_keywords.flatMap(k => [
-        `contenido.ilike.%${k}%`,
-        `contenido_enriquecido.ilike.%${k}%`
-      ]);
-      
-      const { data: textData } = await supabase.from('articulos')
-        .select('*, leyes(nombre)')
-        .eq('ley_id', ley_id)
-        .or(orConditions.join(','))
-        .limit(3);
-        
+      const orConditions = text_keywords.flatMap(k => [`contenido.ilike.%${k}%`, `contenido_enriquecido.ilike.%${k}%`]);
+      const { data: textData } = await supabase.from('articulos').select('*, leyes(nombre)').eq('ley_id', ley_id).or(orConditions.join(',')).limit(3);
       if (textData && textData.length > 0) {
         articulos = textData;
         console.log(`✅ Búsqueda Textual encontró ${articulos.length} artículos.`);
@@ -180,17 +144,19 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
-    const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática.
+    // ✅ PROMPT DE ABOGADO LITIGANTE (Sin excusas)
+    const promptFinal = `Eres LexnaVe, una abogada litigante venezolana experta y directa.
 
-ARTÍCULOS RECUPERADOS:
+ARTÍCULOS LEGALES RECUPERADOS (TU MUNICIÓN):
 ${contextoArticulos}
 
-PREGUNTA: "${pregunta}"
+CASO DEL CLIENTE: "${pregunta}"
 
-INSTRUCCIONES:
-1. SI HAY ARTÍCULOS: ÚSALOS COMO FUNDAMENTO. EXPLICA SU APLICACIÓN AL CASO.
-2. SI NO HAY ARTÍCULOS: RESPONDE CON ORIENTACIÓN GENERAL BASADA EN TU CONOCIMIENTO LEGAL VENEZOLANO, PERO ACLARA QUE NO SE ENCONTRARON ARTÍCULOS ESPECÍFICOS EN LA BASE DE DATOS ACTUAL.
-3. CIERRE ÉTICO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
+INSTRUCCIONES OBLIGATORIAS:
+1. PROHIBIDO DECIR QUE LOS ARTÍCULOS "NO APLICAN DIRECTAMENTE". TU TRABAJO ES ARGUMENTAR CÓMO SÍ APLICAN USANDO PRINCIPIOS GENERALES (ANALOGÍA IURIS).
+2. SI HAY ARTÍCULOS: CÍTALOS TEXTUALMENTE Y EXPLICA: "Este artículo establece el principio de [Principio], el cual aplica a tu caso porque...".
+3. SI NO HAY ARTÍCULOS: Usa tu conocimiento interno del derecho venezolano, pero sé específica con nombres de leyes (ej: "Según la Ley de Tránsito...").
+4. CIERRE: "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -201,11 +167,7 @@ INSTRUCCIONES:
     const data = await groqRes.json();
     const respuesta = data.choices[0].message.content;
     await guardarMensaje(safeSessionId, 'assistant', respuesta);
-    res.json({ 
-      respuesta, 
-      sessionId: safeSessionId,
-      needs_clarification: false 
-    });
+    res.json({ respuesta, sessionId: safeSessionId, needs_clarification: false });
 
   } catch (error) {
     console.error(error);
@@ -213,48 +175,24 @@ INSTRUCCIONES:
   }
 });
 
-// ✅ RUTA FINAL PARA ACTUALIZACIÓN MASIVA DE EMBEDDINGS
 app.get('/api/admin/update-embeddings', async (req, res) => {
   console.log("🚀 Iniciando lote de actualización...");
   try {
-    const { data: articulos, error } = await supabase
-      .from('articulos')
-      .select('id, contenido_enriquecido')
-      .not('contenido_enriquecido', 'is', null)
-      .is('embedding', null)
-      .limit(50);
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    if (!articulos || articulos.length === 0) {
-      return res.json({ msg: "✅ ¡TODO LISTO! No quedan artículos sin vector." });
-    }
+    const { data: articulos, error } = await supabase.from('articulos').select('id, contenido_enriquecido').not('contenido_enriquecido', 'is', null).is('embedding', null).limit(50);
+    if (error) return res.status(500).json({ error: error.message });
+    if (!articulos || articulos.length === 0) return res.json({ msg: "✅ ¡TODO LISTO! No quedan artículos sin vector." });
 
     const currentExtractor = await getExtractor();
     let countActualizados = 0;
-
     for (const art of articulos) {
       try {
         const output = await currentExtractor(art.contenido_enriquecido, { pooling: 'mean', normalize: true });
         const embedding = Array.from(output.data);
-        
-        await supabase
-          .from('articulos')
-          .update({ embedding: embedding }) 
-          .eq('id', art.id);
-          
+        await supabase.from('articulos').update({ embedding: embedding }).eq('id', art.id);
         countActualizados++;
-      } catch (err) {
-        console.error(`Error con art ${art.id}:`, err.message);
-      }
+      } catch (err) { console.error(`Error con art ${art.id}:`, err.message); }
     }
-
-    res.json({ 
-        msg: `✅ Lote de ${countActualizados} actualizado.`, 
-        instruction: "Recarga la página para continuar con el siguiente lote." 
-    });
+    res.json({ msg: `✅ Lote de ${countActualizados} actualizado.`, instruction: "Recarga para continuar." });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error.message });
@@ -262,4 +200,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v41.0 (Strict Classification) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v42.0 (Litigator Mode) activo en puerto ${PORT}`));
