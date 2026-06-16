@@ -129,7 +129,6 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     if (articulos.length === 0 && text_keywords.length > 0) {
       console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva con keywords: ${text_keywords.join(', ')}`);
       
-      // Construimos una query OR que busque en contenido Y contenido_enriquecido
       const orConditions = text_keywords.flatMap(k => [
         `contenido.ilike.%${k}%`,
         `contenido_enriquecido.ilike.%${k}%`
@@ -153,17 +152,19 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
+    // ✅ PROMPT FINAL AJUSTADO PARA SER MENOS CRÍTICO Y MÁS UTIL
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática.
 
-ARTÍCULOS RECUPERADOS DE LA BASE DE DATOS:
+ARTÍCULOS RECUPERADOS DE LA BASE DE DATOS (RELACIONADOS CON EL TEMA):
 ${contextoArticulos}
 
 PREGUNTA DEL USUARIO: "${pregunta}"
 
 INSTRUCCIONES OBLIGATORIAS:
-1. SI HAY ARTÍCULOS ARRIBA: ÚSALOS PARA CITAR Y FUNDAMENTAR TU RESPUESTA. EXPLICA CÓMO APLICAN AL CASO.
-2. SI NO HAY ARTÍCULOS (Dice NO_HAY_ARTICULOS...): RESPONDE CON ORIENTACIÓN GENERAL BASADA EN TU CONOCIMIENTO LEGAL VENEZOLANO, PERO ACLARA QUE NO SE ENCONTRARON ARTÍCULOS ESPECÍFICOS EN LA BASE DE DATOS ACTUAL. NO INVENTES ARTÍCULOS.
-3. MANTÉN LA EMPATÍA Y EL CIERRE ÉTICO.`;
+1. SI HAY ARTÍCULOS ARRIBA: **ÚSALOS SIEMPRE**. Aunque parezcan generales, úsalos como fundamento legal. Explica cómo sus principios (ej: obligación de entregar, definición de matrimonio) aplican al caso concreto del usuario. NO DIGAS QUE NO SON RELEVANTES.
+2. SI NO HAY ARTÍCULOS (Dice NO_HAY_ARTICULOS...): RESPONDE CON ORIENTACIÓN GENERAL BASADA EN TU CONOCIMIENTO LEGAL VENEZOLANO, PERO ACLARA QUE NO SE ENCONTRARON ARTÍCULOS ESPECÍFICOS EN LA BASE DE DATOS ACTUAL.
+3. ESTRUCTURA: Empatia -> Citación de los artículos recuperados -> Explicación aplicada -> Cierre ético.
+4. CIERRE ÉTICO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -183,4 +184,4 @@ INSTRUCCIONES OBLIGATORIAS:
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v33.0 (Aggressive Text Search) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v34.0 (Force Citation) activo en puerto ${PORT}`));
