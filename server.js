@@ -41,13 +41,21 @@ async function getExtractor() {
   return extractor;
 }
 
+// ✅ CLASIFICADOR MEJORADO CON EJEMPLOS DE CIVIL VS COMERCIO
 async function clasificarMateriaLegal(preguntaColoquial) {
-  const prompt = `Eres un experto en derecho venezolano. Devuelve SOLO un objeto JSON:
+  const prompt = `Eres un experto en derecho venezolano. Clasifica la pregunta y devuelve SOLO JSON:
 {
   "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
   "articulo_num": (Número si se menciona, sino null),
-  "text_keywords": ["palabra1", "palabra2"] (Términos legales simples presentes en la ley, ej: para "carro" usa "vehiculo", "cosa")
+  "text_keywords": ["palabra1", "palabra2"] (Términos legales presentes en la ley)
 }
+
+REGLAS CRÍTICAS:
+- Compraventa de carros/casas entre particulares = CIVIL (3).
+- Letras de cambio, cheques, quiebras = COMERCIO (4).
+- Despidos, prestaciones = LABORAL (8).
+- Herencias, divorcios, daños civiles = CIVIL (3).
+
 INPUT: "${preguntaColoquial}"
 OUTPUT:`;
   try {
@@ -120,14 +128,14 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
         articulos = data;
         console.log(`✅ Semántica encontró ${articulos.length} artículos.`);
       } else {
-        console.log(`⚠️ Semántica falló. Intentando Fallback Textual...`);
+        console.log(`⚠️ Semántica falló. Intentando Fallback Textual en contenido_enriquecido...`);
         
-        // 3. Fallback Textual con Keywords
+        // 3. Fallback Textual AGRESIVO en contenido_enriquecido
         const allKeywords = [...new Set([...text_keywords, ...pregunta.split(' ').filter(w => w.length > 4)])];
-        console.log("🔍 Buscando textualmente con:", allKeywords);
-
+        
         if (allKeywords.length > 0) {
-          const orQuery = allKeywords.map(k => `contenido.ilike.%${k}%,contenido_enriquecido.ilike.%${k}%`).join(',');
+          // Buscamos específicamente en contenido_enriquecido que es donde están las etiquetas
+          const orQuery = allKeywords.map(k => `contenido_enriquecido.ilike.%${k}%`).join(',');
           
           const { data: textData } = await supabase.from('articulos')
             .select('*, leyes(nombre)')
@@ -139,16 +147,17 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
             articulos = textData;
             console.log(`✅ Fallback textual encontró ${articulos.length} artículos.`);
           } else {
-             console.log(`❌ Fallback textual falló en Ley ID ${ley_id}. Probando sin filtro de ley...`);
+             console.log(`❌ Fallback textual falló. Probando emergencia sin filtro de ley...`);
              
-             // 4. EMERGENCIA: Buscar en todas las leyes para debuggear
+             // 4. EMERGENCIA: Buscar en todas las leyes
              const { data: emergencyData } = await supabase.from('articulos')
                 .select('*, leyes(nombre)')
                 .or(orQuery)
                 .limit(3);
                 
              if (emergencyData && emergencyData.length > 0) {
-                 console.log("🚨 EMERGENCIA: Se encontraron artículos pero en OTRAS leyes:", emergencyData.map(a => `${a.leyes.nombre} Art. ${a.numero_articulo}`));
+                 console.log("🚨 EMERGENCIA: Artículos encontrados en otras leyes:", emergencyData.map(a => `${a.leyes.nombre} Art. ${a.numero_articulo}`));
+                 articulos = emergencyData; // Usamos estos aunque sean de otra ley para no dejar vacío
              }
           }
         }
@@ -183,4 +192,4 @@ INSTRUCCIONES: Cita y explica. Si no hay artículos, dilo con empatía.`;
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v30.0 (Deep Debug) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v31.0 (Enriched Search) activo en puerto ${PORT}`));
