@@ -41,9 +41,14 @@ async function getExtractor() {
   return extractor;
 }
 
-// ✅ CLASIFICADOR CON CLARIFICACIÓN ACTIVA
-async function clasificarMateriaLegal(preguntaColoquial) {
-  const prompt = `Eres un experto en derecho venezolano. Analiza la pregunta y devuelve SOLO JSON:
+// ✅ CLASIFICADOR CON CONTEXTO Y CLARIFICACIÓN ACTIVA
+async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
+  // Formateamos el historial para que Groq entienda el contexto
+  const contextoHistorial = historialReciente.length > 0 
+    ? `CONTEXTO PREVIO DE LA CONVERSACIÓN:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
+    : '';
+
+  const prompt = `Eres un experto en derecho venezolano. Analiza la pregunta actual junto con el contexto previo y devuelve SOLO JSON:
 {
   "needs_clarification": boolean,
   "clarification_question": string (solo si needs_clarification es true),
@@ -52,20 +57,21 @@ async function clasificarMateriaLegal(preguntaColoquial) {
   "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
 }
 
-REGLAS DE CLARIFICACIÓN:
-- Si la pregunta es ambigua entre materias (ej: "me deben dinero" puede ser Civil, Mercantil o Laboral), pon needs_clarification: true y haz una pregunta breve para definir el contexto.
-- Si la pregunta es clara (ej: "mi vecino me golpeó"), pon needs_clarification: false y asigna la ley correcta (Penal 6).
-- Para "comprar carro/casa", usa keywords: ["vendedor", "comprador", "cosa_vendida", "entrega", "precio"]. Ley: 3 (Civil).
-- Para "golpes/lesiones", usa keywords: ["lesiones", "golpe", "dolo", "pena"]. Ley: 6 (Penal).
-- Para "letra de cambio", usa keywords: ["letra", "cambio", "endoso", "librado"]. Ley: 4 (Comercio).
+REGLAS DE CLARIFICACIÓN (ESTRICTAS):
+- Solo usa needs_clarification: true si la pregunta es AMBIGUA entre materias legales distintas (ej: "me deben dinero" puede ser Civil, Mercantil o Laboral).
+- NO preguntes si el contexto previo ya aclara la situación.
+- Si el usuario responde a una aclaración anterior (ej: dice "consensuado" después de hablar de divorcio), usa el contexto para asignar la ley correcta (Civil 3) y keywords relevantes.
 
-EJEMPLOS:
-Input: "me chocaron el carro" -> Output: {"needs_clarification": true, "clarification_question": "¿Te refieres a daños materiales al vehículo o a lesiones personales?", "ley_id": null, "articulo_num": null, "text_keywords": []}
-Input: "me chocaron y me rompí la nariz" -> Output: {"needs_clarification": false, "clarification_question": null, "ley_id": 6, "articulo_num": null, "text_keywords": ["lesiones", "golpe", "dolo"]}
-Input: "compré un carro y no me lo entregan" -> Output: {"needs_clarification": false, "clarification_question": null, "ley_id": 3, "articulo_num": null, "text_keywords": ["vendedor", "entrega", "comprador"]}
+REGLAS DE KEYWORDS:
+- Divorcio/Matrimonio: ["divorcio", "matrimonio", "vinculo", "separacion"]. Ley: 3.
+- Compraventa/Entrega: ["vendedor", "comprador", "cosa_vendida", "entrega", "precio"]. Ley: 3.
+- Lesiones/Golpes: ["lesiones", "golpe", "dolo", "pena", "integridad"]. Ley: 6.
+- Títulos Valores: ["letra", "cambio", "cheque", "endoso", "librado"]. Ley: 4.
 
-INPUT: "${preguntaColoquial}"
+${contextoHistorial}
+PREGUNTA ACTUAL: "${preguntaColoquial}"
 OUTPUT:`;
+
   try {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -93,7 +99,7 @@ async function guardarMensaje(sessionId, role, content) {
   await supabase.from('chat_history').insert({ session_id: sessionId, role, content });
 }
 
-// ✅ RUTA DE CONSULTA PRINCIPAL CON CLARIFICACIÓN ACTIVA
+// ✅ RUTA DE CONSULTA PRINCIPAL CON CONTEXTO
 app.post('/api/consultar', verifyAuth, async (req, res) => {
   try {
     const { pregunta, sessionId: clientSessionId } = req.body;
@@ -102,9 +108,12 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
 
     console.log(`📨 [${userId.substring(0,8)}...] Pregunta:`, pregunta);
     await guardarMensaje(safeSessionId, 'user', pregunta);
+    
+    // Obtenemos el historial para pasárselo al clasificador
     const historial = await obtenerMemoria(safeSessionId);
 
-    const clasificacion = await clasificarMateriaLegal(pregunta);
+    // Pasamos el historial a la función de clasificación
+    const clasificacion = await clasificarMateriaLegal(pregunta, historial);
     console.log("⚖️ Clasificación:", clasificacion);
 
     // 1. VERIFICAR SI NECESITA CLARIFICACIÓN
@@ -260,4 +269,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v39.0 (Active Clarification) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v40.0 (Context Aware) activo en puerto ${PORT}`));
