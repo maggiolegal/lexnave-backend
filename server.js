@@ -41,33 +41,23 @@ async function getExtractor() {
   return extractor;
 }
 
-// ✅ CLASIFICADOR CON INTENCIÓN JURÍDICA Y CLARIFICACIÓN ESTRICTA
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const contextoHistorial = historialReciente.length > 0 
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
     : '';
 
-  const prompt = `Eres un experto en derecho venezolano. Analiza la pregunta y devuelve SOLO JSON:
+  const prompt = `Eres un experto en derecho venezolano. Clasifica y devuelve SOLO JSON:
 {
   "needs_clarification": boolean,
   "clarification_question": string,
   "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
-  "legal_intent": string (ej: "familia_divorcio", "procesal_juicio_oral", "civil_responsabilidad", "penal_lesiones"),
+  "legal_intent": string,
   "articulo_num": (Número si se menciona, sino null),
   "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
 }
-
-REGLAS DE CLARIFICACIÓN OBLIGATORIA (ACTIVAR SIEMPRE QUE APLIQUE):
-1. Si menciona "accidente/choque" sin especificar heridos -> Pregunta: "¿Hubo lesiones personales o solo daños materiales?".
-2. Si menciona "deuda/dinero" sin especificar origen -> Pregunta: "¿Es por préstamo, factura comercial o salario?".
-3. Si menciona "desalojo/inquilino" sin especificar tipo de inmueble -> Pregunta: "¿Es vivienda familiar o local comercial?".
-
-REGLAS DE INTENCIÓN JURÍDICA (legal_intent):
-- Divorcio/Custodia -> "familia_divorcio" (Ley 3).
-- Juicio Oral/Demandas/Nulidades -> "procesal_civil" (Ley 7).
-- Choque/Daños a cosas -> "civil_responsabilidad" (Ley 3).
-- Golpes/Homicidios -> "penal_lesiones" (Ley 6).
-- Letras/Cheques/Pagarés -> "mercantil_titulos" (Ley 4).
+REGLAS DE CLARIFICACIÓN OBLIGATORIA:
+1. "Choque" sin heridos -> Pregunta: "¿Lesiones o daños materiales?".
+2. "Deuda" sin origen -> Pregunta: "¿Préstamo, factura o salario?".
 
 ${contextoHistorial}
 PREGUNTA ACTUAL: "${preguntaColoquial}"
@@ -84,26 +74,26 @@ OUTPUT:`;
     if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
     return JSON.parse(content);
   } catch (error) { 
-    console.error("Error en clasificación:", error);
-    return { needs_clarification: false, ley_id: 3, legal_intent: 'general', articulo_num: null, text_keywords: [] }; 
+    return { needs_clarification: false, ley_id: null, legal_intent: 'general', articulo_num: null, text_keywords: [] }; 
   }
 }
 
-// ✅ FUNCIÓN DE RE-RANKING ROBUSTA
+// ✅ RE-RANKER TRANSVERSAL (El Juez Supremo)
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (articulosCandidatos.length === 0) return [];
   
-  const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] Art. ${a.numero_articulo}: "${a.contenido.substring(0, 150)}..."`).join('\n');
+  // Incluimos el nombre de la ley para que la IA sepa de dónde viene cada artículo
+  const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] ${a.leyes?.nombre} Art. ${a.numero_articulo}: "${a.contenido.substring(0, 150)}..."`).join('\n');
   
-  const prompt = `Eres un juez supervisor estricto. Tienes una pregunta legal y una lista de artículos candidatos.
+  const prompt = `Eres la Corte Suprema de Justicia de Venezuela. Tienes una pregunta y candidatos de DISTINTAS leyes.
   PREGUNTA: "${pregunta}"
   CANDIDATOS:
   ${listaParaIA}
   
-  TAREA: Devuelve SOLO un array JSON con los índices (ej: [1, 3]) de los artículos que sean REALMENTE RELEVANTES para el caso. 
-  - Descarta artículos que usen las palabras clave pero en contextos irrelevantes (ej: canales de agua, gestión de negocios ajenos si no aplica).
-  - Si ninguno sirve, devuelve [].
-  - NO AÑADAS TEXTO EXTRA. SOLO EL ARRAY JSON.
+  TAREA: Selecciona SOLO los artículos estrictamente aplicables. 
+  - Si la pregunta es sobre "Presidente" o "Seguridad Nacional", descarta el Código Civil y busca en la CRBV.
+  - Si la pregunta es sobre "Divorcio", descarta el Código Penal.
+  - Devuelve SOLO un array JSON con los índices (ej: [1, 3]). Si ninguno sirve, [].
   OUTPUT:`;
 
   try {
@@ -114,25 +104,18 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
     });
     const data = await res.json();
     let content = data.choices[0].message.content.trim();
-    
-    // Limpieza agresiva para asegurar JSON válido
     content = content.replace(/```json/g, '').replace(/```/g, '').trim();
-    
-    // Buscar el primer '[' y el último ']' para extraer el array aunque haya texto alrededor
     const start = content.indexOf('[');
     const end = content.lastIndexOf(']');
     
     if (start !== -1 && end !== -1) {
-      const jsonArray = content.substring(start, end + 1);
-      const indices = JSON.parse(jsonArray);
+      const indices = JSON.parse(content.substring(start, end + 1));
       return indices.map(i => articulosCandidatos[i-1]).filter(a => a !== undefined);
-    } else {
-      throw new Error("No se encontró formato de array en la respuesta");
     }
-
+    return [];
   } catch (e) {
     console.error("Error en Re-ranking:", e.message);
-    return articulosCandidatos.slice(0, 2); 
+    return articulosCandidatos.slice(0, 1); 
   }
 }
 
@@ -167,44 +150,45 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     }
 
     let articulosCandidatos = [];
-    const { ley_id, articulo_num, text_keywords = [], legal_intent } = clasificacion;
+    const { ley_id, articulo_num, text_keywords = [] } = clasificacion;
 
-    // 1. Búsqueda Exacta
+    // 1. Búsqueda Exacta (Prioridad Máxima)
     if (articulo_num && ley_id) {
       const { data } = await supabase.from('articulos').select('*, leyes(nombre)').eq('numero_articulo', articulo_num.toString()).eq('ley_id', ley_id).limit(1);
       if (data && data.length > 0) articulosCandidatos = data;
     }
 
-    // 2. Búsqueda Semántica (Traemos 5 para tener donde elegir)
+    // 2. Búsqueda Semántica TRANSVERSAL (Sin filtro de ley_id)
     if (articulosCandidatos.length === 0) {
       try {
         const currentExtractor = await getExtractor();
         const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
         const queryEmbedding = Array.from(output.data);
-        const { data, error } = await supabase.rpc('match_articulos', { query_embedding: queryEmbedding, match_threshold: 0.15, match_count: 5, filter_ley_id: ley_id });
+        // Buscamos en TODA la base de datos
+        const { data, error } = await supabase.rpc('match_articulos', { query_embedding: queryEmbedding, match_threshold: 0.15, match_count: 10 });
         if (!error && data && data.length > 0) articulosCandidatos = data;
       } catch (e) { console.error("Error semántico:", e); }
     }
 
-    // 3. Búsqueda Textual Agresiva (Traemos 5 para tener donde elegir)
+    // 3. Búsqueda Textual Agresiva TRANSVERSAL (Sin filtro de ley_id)
     if (articulosCandidatos.length === 0 && text_keywords.length > 0) {
-      console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva...`);
+      console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva Transversal...`);
       const orConditions = text_keywords.flatMap(k => [`contenido.ilike.%${k}%`, `contenido_enriquecido.ilike.%${k}%`]);
-      const { data: textData } = await supabase.from('articulos').select('*, leyes(nombre)').eq('ley_id', ley_id).or(orConditions.join(',')).limit(5);
+      // Buscamos en TODA la base de datos
+      const { data: textData } = await supabase.from('articulos').select('*, leyes(nombre)').or(orConditions.join(',')).limit(10);
       if (textData && textData.length > 0) articulosCandidatos = textData;
     }
 
-    // ✅ APLICAR RE-RANKING INTELIGENTE
-    console.log(`🔍 Filtrando ${articulosCandidatos.length} candidatos con IA...`);
+    // ✅ APLICAR RE-RANKING SUPREMO
+    console.log(`🔍 Filtrando ${articulosCandidatos.length} candidatos transversales con IA...`);
     const articulosFinales = await filtrarArticulosRelevantes(pregunta, articulosCandidatos);
-    console.log(`✅ Después del filtro quedaron ${articulosFinales.length} artículos relevantes.`);
+    console.log(`✅ Después del filtro supremo quedaron ${articulosFinales.length} artículos.`);
 
     const contextoArticulos = articulosFinales.length > 0
       ? articulosFinales.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
     const promptFinal = `Eres LexnaVe, abogada litigante venezolana experta.
-    Intención Jurídica Detectada: ${legal_intent || 'General'}
 
 ARTÍCULOS LEGALES VÁLIDOS Y FILTRADOS:
 ${contextoArticulos}
@@ -258,4 +242,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v46.0 (Legal Intent & Strict Clarification) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v47.0 (Transversal Search) activo en puerto ${PORT}`));
