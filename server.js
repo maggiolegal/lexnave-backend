@@ -41,21 +41,17 @@ async function getExtractor() {
   return extractor;
 }
 
-// ✅ CLASIFICADOR MEJORADO CON EJEMPLOS DE CIVIL VS COMERCIO
 async function clasificarMateriaLegal(preguntaColoquial) {
   const prompt = `Eres un experto en derecho venezolano. Clasifica la pregunta y devuelve SOLO JSON:
 {
   "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
   "articulo_num": (Número si se menciona, sino null),
-  "text_keywords": ["palabra1", "palabra2"] (Términos legales presentes en la ley)
+  "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
 }
-
-REGLAS CRÍTICAS:
-- Compraventa de carros/casas entre particulares = CIVIL (3).
-- Letras de cambio, cheques, quiebras = COMERCIO (4).
-- Despidos, prestaciones = LABORAL (8).
-- Herencias, divorcios, daños civiles = CIVIL (3).
-
+REGLAS:
+- Para "comprar carro/casa", usa keywords: ["vendedor", "comprador", "cosa_vendida", "entrega", "precio"]. Ley: 3 (Civil).
+- Para "golpes/lesiones", usa keywords: ["lesiones", "golpe", "dolo", "pena"]. Ley: 6 (Penal).
+- Para "letra de cambio", usa keywords: ["letra", "cambio", "endoso", "librado"]. Ley: 4 (Comercio).
 INPUT: "${preguntaColoquial}"
 OUTPUT:`;
   try {
@@ -68,10 +64,7 @@ OUTPUT:`;
     let content = data.choices[0].message.content.trim();
     if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
     return JSON.parse(content);
-  } catch (error) { 
-    console.error("Error en Groq:", error);
-    return { ley_id: 3, articulo_num: null, text_keywords: [] }; 
-  }
+  } catch (error) { return { ley_id: 3, articulo_num: null, text_keywords: [] }; }
 }
 
 async function obtenerMemoria(sessionId) {
@@ -101,7 +94,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     let articulos = [];
     const { ley_id, articulo_num, text_keywords = [] } = clasificacion;
 
-    // 1. Búsqueda Exacta
+    // 1. Búsqueda Exacta por Artículo
     if (articulo_num && ley_id) {
       const { data } = await supabase.from('articulos')
         .select('*, leyes(nombre)')
@@ -111,68 +104,66 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (data && data.length > 0) articulos = data;
     }
 
-    // 2. Búsqueda Semántica Filtrada
+    // 2. Búsqueda Semántica (Intento 1)
     if (articulos.length === 0) {
-      const currentExtractor = await getExtractor();
-      const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
-      const queryEmbedding = Array.from(output.data);
+      try {
+        const currentExtractor = await getExtractor();
+        const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
+        const queryEmbedding = Array.from(output.data);
 
-      const { data, error } = await supabase.rpc('match_articulos', { 
-        query_embedding: queryEmbedding, 
-        match_threshold: 0.15, 
-        match_count: 5,
-        filter_ley_id: ley_id 
-      });
-      
-      if (!error && data && data.length > 0) {
-        articulos = data;
-        console.log(`✅ Semántica encontró ${articulos.length} artículos.`);
-      } else {
-        console.log(`⚠️ Semántica falló. Intentando Fallback Textual en contenido_enriquecido...`);
+        const { data, error } = await supabase.rpc('match_articulos', { 
+          query_embedding: queryEmbedding, 
+          match_threshold: 0.15, 
+          match_count: 5,
+          filter_ley_id: ley_id 
+        });
         
-        // 3. Fallback Textual AGRESIVO en contenido_enriquecido
-        const allKeywords = [...new Set([...text_keywords, ...pregunta.split(' ').filter(w => w.length > 4)])];
-        
-        if (allKeywords.length > 0) {
-          // Buscamos específicamente en contenido_enriquecido que es donde están las etiquetas
-          const orQuery = allKeywords.map(k => `contenido_enriquecido.ilike.%${k}%`).join(',');
-          
-          const { data: textData } = await supabase.from('articulos')
-            .select('*, leyes(nombre)')
-            .eq('ley_id', ley_id)
-            .or(orQuery)
-            .limit(3);
-            
-          if (textData && textData.length > 0) {
-            articulos = textData;
-            console.log(`✅ Fallback textual encontró ${articulos.length} artículos.`);
-          } else {
-             console.log(`❌ Fallback textual falló. Probando emergencia sin filtro de ley...`);
-             
-             // 4. EMERGENCIA: Buscar en todas las leyes
-             const { data: emergencyData } = await supabase.from('articulos')
-                .select('*, leyes(nombre)')
-                .or(orQuery)
-                .limit(3);
-                
-             if (emergencyData && emergencyData.length > 0) {
-                 console.log("🚨 EMERGENCIA: Artículos encontrados en otras leyes:", emergencyData.map(a => `${a.leyes.nombre} Art. ${a.numero_articulo}`));
-                 articulos = emergencyData; // Usamos estos aunque sean de otra ley para no dejar vacío
-             }
-          }
+        if (!error && data && data.length > 0) {
+          articulos = data;
+          console.log(`✅ Semántica encontró ${articulos.length} artículos.`);
         }
+      } catch (e) { console.error("Error semántico:", e); }
+    }
+
+    // 3. Búsqueda Textual Agresiva (Intento 2 - La Salvación)
+    if (articulos.length === 0 && text_keywords.length > 0) {
+      console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva con keywords: ${text_keywords.join(', ')}`);
+      
+      // Construimos una query OR que busque en contenido Y contenido_enriquecido
+      const orConditions = text_keywords.flatMap(k => [
+        `contenido.ilike.%${k}%`,
+        `contenido_enriquecido.ilike.%${k}%`
+      ]);
+      
+      const { data: textData } = await supabase.from('articulos')
+        .select('*, leyes(nombre)')
+        .eq('ley_id', ley_id)
+        .or(orConditions.join(','))
+        .limit(3);
+        
+      if (textData && textData.length > 0) {
+        articulos = textData;
+        console.log(`✅ Búsqueda Textual encontró ${articulos.length} artículos.`);
+      } else {
+        console.log(`❌ Búsqueda Textual tampoco encontró nada en Ley ID ${ley_id}.`);
       }
     }
 
     const contextoArticulos = articulos.length > 0
       ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
-      : "No se encontraron artículos específicos.";
+      : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática.
-ARTÍCULOS RECUPERADOS:
+
+ARTÍCULOS RECUPERADOS DE LA BASE DE DATOS:
 ${contextoArticulos}
-PREGUNTA: "${pregunta}"
-INSTRUCCIONES: Cita y explica. Si no hay artículos, dilo con empatía.`;
+
+PREGUNTA DEL USUARIO: "${pregunta}"
+
+INSTRUCCIONES OBLIGATORIAS:
+1. SI HAY ARTÍCULOS ARRIBA: ÚSALOS PARA CITAR Y FUNDAMENTAR TU RESPUESTA. EXPLICA CÓMO APLICAN AL CASO.
+2. SI NO HAY ARTÍCULOS (Dice NO_HAY_ARTICULOS...): RESPONDE CON ORIENTACIÓN GENERAL BASADA EN TU CONOCIMIENTO LEGAL VENEZOLANO, PERO ACLARA QUE NO SE ENCONTRARON ARTÍCULOS ESPECÍFICOS EN LA BASE DE DATOS ACTUAL. NO INVENTES ARTÍCULOS.
+3. MANTÉN LA EMPATÍA Y EL CIERRE ÉTICO.`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -192,4 +183,4 @@ INSTRUCCIONES: Cita y explica. Si no hay artículos, dilo con empatía.`;
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v31.0 (Enriched Search) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v33.0 (Aggressive Text Search) activo en puerto ${PORT}`));
