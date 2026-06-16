@@ -181,37 +181,47 @@ INSTRUCCIONES OBLIGATORIAS:
   }
 });
 
-// ✅ RUTA PARA ACTUALIZAR EMBEDDINGS EN LOTES
+// ✅ RUTA DE DIAGNÓSTICO EXTREMO PARA EMBEDDINGS
 app.get('/api/admin/update-embeddings', async (req, res) => {
-  console.log("🚀 Verificando estado y procesando lote...");
+  console.log("🚀 INICIANDO DIAGNÓSTICO DE BD...");
   try {
-    // Contar cuántos faltan (tienen texto pero no vector)
-    const { count } = await supabase
+    // 1. Intentar traer CUALQUIER artículo con texto, sin filtrar por embedding
+    const { data: testArticulos, error: testError } = await supabase
       .from('articulos')
-      .select('*', { count: 'exact', head: true })
+      .select('id, contenido_enriquecido, embedding')
       .not('contenido_enriquecido', 'is', null)
-      .eq('embedding', null);
+      .limit(5);
 
-    if (!count || count === 0) {
-        return res.json({ msg: "✅ ¡TODO LISTO! No quedan artículos por actualizar." });
+    if (testError) {
+      return res.json({ error: "Fallo en BD", details: testError.message });
     }
 
-    // Traer un lote de 50
-    const { data: articulos } = await supabase
-      .from('articulos')
-      .select('id, contenido_enriquecido')
-      .not('contenido_enriquecido', 'is', null)
-      .eq('embedding', null)
-      .limit(50);
-
-    if (!articulos || articulos.length === 0) {
-         return res.json({ msg: "✅ ¡TODO LISTO! No quedan artículos por actualizar." });
+    console.log(`🔍 Artículos encontrados en prueba: ${testArticulos ? testArticulos.length : 0}`);
+    
+    if (!testArticulos || testArticulos.length === 0) {
+      return res.json({ msg: "La BD devuelve 0 artículos con texto. Revisa la tabla o la conexión." });
     }
 
+    // Mostrar el estado del primero para ver si tiene vector
+    const primero = testArticulos[0];
+    
+    // Si el primero TIENE vector, asumimos que todos están listos (por eso decía TODO LISTO antes)
+    if (primero.embedding) {
+       return res.json({ 
+         msg: "Diagnóstico: Los artículos YA TIENEN vectores.", 
+         primer_articulo_id: primero.id,
+         tiene_texto: !!primero.contenido_enriquecido,
+         tiene_vector: !!primero.embedding,
+         nota: "Si borraste los vectores localmente, asegúrate de haber usado la misma DB que usa Render."
+       });
+    }
+
+    // Si llegamos aquí, es que hay artículos SIN vector. Procedemos a actualizar un lote pequeño de prueba.
     const currentExtractor = await getExtractor();
     let countActualizados = 0;
-
-    for (const art of articulos) {
+    
+    // Tomamos los 5 que ya buscamos para probar
+    for (const art of testArticulos) {
       try {
         const output = await currentExtractor(art.contenido_enriquecido, { pooling: 'mean', normalize: true });
         const embedding = Array.from(output.data);
@@ -227,11 +237,13 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
       }
     }
 
-    res.json({ 
-        msg: `✅ Lote de ${countActualizados} actualizado.`, 
-        restantes: count - countActualizados,
-        instruction: "Recarga para continuar." 
+    return res.json({ 
+      msg: `Prueba exitosa. Actualizados ${countActualizados} artículos de muestra.`,
+      detalle: "Si esto funcionó, el problema era que los vectores ya existían o la consulta de conteo fallaba.",
+      primer_articulo_id: primero.id,
+      tiene_vector_ahora: true
     });
+
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: error.message });
@@ -239,4 +251,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v36.0 (Full System) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v37.0 (Diagnostic Mode) activo en puerto ${PORT}`));
