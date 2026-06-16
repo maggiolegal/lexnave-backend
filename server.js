@@ -41,17 +41,29 @@ async function getExtractor() {
   return extractor;
 }
 
+// ✅ CLASIFICADOR CON CLARIFICACIÓN ACTIVA
 async function clasificarMateriaLegal(preguntaColoquial) {
-  const prompt = `Eres un experto en derecho venezolano. Clasifica la pregunta y devuelve SOLO JSON:
+  const prompt = `Eres un experto en derecho venezolano. Analiza la pregunta y devuelve SOLO JSON:
 {
+  "needs_clarification": boolean,
+  "clarification_question": string (solo si needs_clarification es true),
   "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
   "articulo_num": (Número si se menciona, sino null),
   "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
 }
-REGLAS:
+
+REGLAS DE CLARIFICACIÓN:
+- Si la pregunta es ambigua entre materias (ej: "me deben dinero" puede ser Civil, Mercantil o Laboral), pon needs_clarification: true y haz una pregunta breve para definir el contexto.
+- Si la pregunta es clara (ej: "mi vecino me golpeó"), pon needs_clarification: false y asigna la ley correcta (Penal 6).
 - Para "comprar carro/casa", usa keywords: ["vendedor", "comprador", "cosa_vendida", "entrega", "precio"]. Ley: 3 (Civil).
 - Para "golpes/lesiones", usa keywords: ["lesiones", "golpe", "dolo", "pena"]. Ley: 6 (Penal).
 - Para "letra de cambio", usa keywords: ["letra", "cambio", "endoso", "librado"]. Ley: 4 (Comercio).
+
+EJEMPLOS:
+Input: "me chocaron el carro" -> Output: {"needs_clarification": true, "clarification_question": "¿Te refieres a daños materiales al vehículo o a lesiones personales?", "ley_id": null, "articulo_num": null, "text_keywords": []}
+Input: "me chocaron y me rompí la nariz" -> Output: {"needs_clarification": false, "clarification_question": null, "ley_id": 6, "articulo_num": null, "text_keywords": ["lesiones", "golpe", "dolo"]}
+Input: "compré un carro y no me lo entregan" -> Output: {"needs_clarification": false, "clarification_question": null, "ley_id": 3, "articulo_num": null, "text_keywords": ["vendedor", "entrega", "comprador"]}
+
 INPUT: "${preguntaColoquial}"
 OUTPUT:`;
   try {
@@ -64,7 +76,10 @@ OUTPUT:`;
     let content = data.choices[0].message.content.trim();
     if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
     return JSON.parse(content);
-  } catch (error) { return { ley_id: 3, articulo_num: null, text_keywords: [] }; }
+  } catch (error) { 
+    console.error("Error en clasificación:", error);
+    return { needs_clarification: false, ley_id: 3, articulo_num: null, text_keywords: [] }; 
+  }
 }
 
 async function obtenerMemoria(sessionId) {
@@ -78,7 +93,7 @@ async function guardarMensaje(sessionId, role, content) {
   await supabase.from('chat_history').insert({ session_id: sessionId, role, content });
 }
 
-// ✅ RUTA DE CONSULTA PRINCIPAL
+// ✅ RUTA DE CONSULTA PRINCIPAL CON CLARIFICACIÓN ACTIVA
 app.post('/api/consultar', verifyAuth, async (req, res) => {
   try {
     const { pregunta, sessionId: clientSessionId } = req.body;
@@ -92,10 +107,21 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     const clasificacion = await clasificarMateriaLegal(pregunta);
     console.log("⚖️ Clasificación:", clasificacion);
 
+    // 1. VERIFICAR SI NECESITA CLARIFICACIÓN
+    if (clasificacion.needs_clarification) {
+      const respuestaClarificacion = clasificacion.clarification_question || "¿Podrías especificar un poco más tu consulta legal?";
+      await guardarMensaje(safeSessionId, 'assistant', respuestaClarificacion);
+      return res.json({ 
+        respuesta: respuestaClarificacion, 
+        sessionId: safeSessionId,
+        needs_clarification: true 
+      });
+    }
+
     let articulos = [];
     const { ley_id, articulo_num, text_keywords = [] } = clasificacion;
 
-    // 1. Búsqueda Exacta por Artículo
+    // 2. Búsqueda Exacta por Artículo
     if (articulo_num && ley_id) {
       const { data } = await supabase.from('articulos')
         .select('*, leyes(nombre)')
@@ -105,7 +131,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (data && data.length > 0) articulos = data;
     }
 
-    // 2. Búsqueda Semántica Filtrada
+    // 3. Búsqueda Semántica Filtrada
     if (articulos.length === 0) {
       try {
         const currentExtractor = await getExtractor();
@@ -126,7 +152,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       } catch (e) { console.error("Error semántico:", e); }
     }
 
-    // 3. Búsqueda Textual Agresiva
+    // 4. Búsqueda Textual Agresiva
     if (articulos.length === 0 && text_keywords.length > 0) {
       console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva...`);
       
@@ -173,7 +199,11 @@ INSTRUCCIONES OBLIGATORIAS:
     const data = await groqRes.json();
     const respuesta = data.choices[0].message.content;
     await guardarMensaje(safeSessionId, 'assistant', respuesta);
-    res.json({ respuesta, sessionId: safeSessionId });
+    res.json({ 
+      respuesta, 
+      sessionId: safeSessionId,
+      needs_clarification: false 
+    });
 
   } catch (error) {
     console.error(error);
@@ -185,13 +215,11 @@ INSTRUCCIONES OBLIGATORIAS:
 app.get('/api/admin/update-embeddings', async (req, res) => {
   console.log("🚀 Iniciando lote de actualización...");
   try {
-    // Buscamos artículos que tengan texto pero cuyo embedding sea NULL o no exista
-    // Usamos una consulta simple sin count para evitar el bug anterior
     const { data: articulos, error } = await supabase
       .from('articulos')
       .select('id, contenido_enriquecido')
       .not('contenido_enriquecido', 'is', null)
-      .is('embedding', null) // Solo los que realmente no tienen vector
+      .is('embedding', null)
       .limit(50);
 
     if (error) {
@@ -232,4 +260,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v38.0 (Mass Update Ready) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v39.0 (Active Clarification) activo en puerto ${PORT}`));
