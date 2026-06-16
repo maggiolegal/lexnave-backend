@@ -76,18 +76,21 @@ OUTPUT:`;
   }
 }
 
-// ✅ FUNCIÓN DE RE-RANKING (FILTRO INTELIGENTE)
+// ✅ FUNCIÓN DE RE-RANKING ROBUSTA
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (articulosCandidatos.length === 0) return [];
   
-  const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] Art. ${a.numero_articulo}: "${a.contenido.substring(0, 200)}..."`).join('\n');
+  const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] Art. ${a.numero_articulo}: "${a.contenido.substring(0, 150)}..."`).join('\n');
   
-  const prompt = `Eres un juez supervisor. Tienes una pregunta legal y una lista de artículos candidatos.
+  const prompt = `Eres un juez supervisor estricto. Tienes una pregunta legal y una lista de artículos candidatos.
   PREGUNTA: "${pregunta}"
   CANDIDATOS:
   ${listaParaIA}
   
-  TAREA: Devuelve SOLO un array JSON con los índices (ej: [1, 3]) de los artículos que sean REALMENTE RELEVANTES para el caso. Descarta los que usen las palabras clave pero en contextos irrelevantes (ej: canales de agua, gestión de negocios ajenos si no aplica). Si ninguno sirve, devuelve [].
+  TAREA: Devuelve SOLO un array JSON con los índices (ej: [1, 3]) de los artículos que sean REALMENTE RELEVANTES para el caso. 
+  - Descarta artículos que usen las palabras clave pero en contextos irrelevantes (ej: canales de agua, gestión de negocios ajenos si no aplica).
+  - Si ninguno sirve, devuelve [].
+  - NO AÑADAS TEXTO EXTRA. SOLO EL ARRAY JSON.
   OUTPUT:`;
 
   try {
@@ -98,12 +101,26 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
     });
     const data = await res.json();
     let content = data.choices[0].message.content.trim();
-    if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
-    const indices = JSON.parse(content);
-    return indices.map(i => articulosCandidatos[i-1]).filter(a => a !== undefined);
+    
+    // Limpieza agresiva para asegurar JSON válido
+    content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // Buscar el primer '[' y el último ']' para extraer el array aunque haya texto alrededor
+    const start = content.indexOf('[');
+    const end = content.lastIndexOf(']');
+    
+    if (start !== -1 && end !== -1) {
+      const jsonArray = content.substring(start, end + 1);
+      const indices = JSON.parse(jsonArray);
+      return indices.map(i => articulosCandidatos[i-1]).filter(a => a !== undefined);
+    } else {
+      throw new Error("No se encontró formato de array en la respuesta");
+    }
+
   } catch (e) {
-    console.error("Error en Re-ranking:", e);
-    return articulosCandidatos; // Si falla, devolvemos todos por seguridad
+    console.error("Error en Re-ranking:", e.message);
+    // Si falla el filtro, devolvemos solo el primero para no saturar, o todos si prefieres
+    return articulosCandidatos.slice(0, 2); 
   }
 }
 
@@ -228,4 +245,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v44.0 (AI Re-Ranking) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v45.0 (Robust Re-Ranking) activo en puerto ${PORT}`));
