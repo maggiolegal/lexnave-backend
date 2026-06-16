@@ -41,22 +41,34 @@ async function getExtractor() {
   return extractor;
 }
 
+// ✅ CLASIFICADOR CON INTENCIÓN JURÍDICA Y CLARIFICACIÓN ESTRICTA
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const contextoHistorial = historialReciente.length > 0 
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
     : '';
 
-  const prompt = `Eres un experto en derecho venezolano. Clasifica y devuelve SOLO JSON:
+  const prompt = `Eres un experto en derecho venezolano. Analiza la pregunta y devuelve SOLO JSON:
 {
   "needs_clarification": boolean,
   "clarification_question": string,
   "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
+  "legal_intent": string (ej: "familia_divorcio", "procesal_juicio_oral", "civil_responsabilidad", "penal_lesiones"),
   "articulo_num": (Número si se menciona, sino null),
   "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
 }
-REGLAS:
-- "Choque/Accidente" SIN mención de heridos = CIVIL (3). Keywords: ["daños", "perjuicios", "responsabilidad_civil"].
-- Ambigüedad = needs_clarification: true.
+
+REGLAS DE CLARIFICACIÓN OBLIGATORIA (ACTIVAR SIEMPRE QUE APLIQUE):
+1. Si menciona "accidente/choque" sin especificar heridos -> Pregunta: "¿Hubo lesiones personales o solo daños materiales?".
+2. Si menciona "deuda/dinero" sin especificar origen -> Pregunta: "¿Es por préstamo, factura comercial o salario?".
+3. Si menciona "desalojo/inquilino" sin especificar tipo de inmueble -> Pregunta: "¿Es vivienda familiar o local comercial?".
+
+REGLAS DE INTENCIÓN JURÍDICA (legal_intent):
+- Divorcio/Custodia -> "familia_divorcio" (Ley 3).
+- Juicio Oral/Demandas/Nulidades -> "procesal_civil" (Ley 7).
+- Choque/Daños a cosas -> "civil_responsabilidad" (Ley 3).
+- Golpes/Homicidios -> "penal_lesiones" (Ley 6).
+- Letras/Cheques/Pagarés -> "mercantil_titulos" (Ley 4).
+
 ${contextoHistorial}
 PREGUNTA ACTUAL: "${preguntaColoquial}"
 OUTPUT:`;
@@ -72,7 +84,8 @@ OUTPUT:`;
     if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
     return JSON.parse(content);
   } catch (error) { 
-    return { needs_clarification: false, ley_id: 3, articulo_num: null, text_keywords: [] }; 
+    console.error("Error en clasificación:", error);
+    return { needs_clarification: false, ley_id: 3, legal_intent: 'general', articulo_num: null, text_keywords: [] }; 
   }
 }
 
@@ -119,7 +132,6 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
 
   } catch (e) {
     console.error("Error en Re-ranking:", e.message);
-    // Si falla el filtro, devolvemos solo el primero para no saturar, o todos si prefieres
     return articulosCandidatos.slice(0, 2); 
   }
 }
@@ -155,7 +167,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     }
 
     let articulosCandidatos = [];
-    const { ley_id, articulo_num, text_keywords = [] } = clasificacion;
+    const { ley_id, articulo_num, text_keywords = [], legal_intent } = clasificacion;
 
     // 1. Búsqueda Exacta
     if (articulo_num && ley_id) {
@@ -192,6 +204,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
     const promptFinal = `Eres LexnaVe, abogada litigante venezolana experta.
+    Intención Jurídica Detectada: ${legal_intent || 'General'}
 
 ARTÍCULOS LEGALES VÁLIDOS Y FILTRADOS:
 ${contextoArticulos}
@@ -245,4 +258,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v45.0 (Robust Re-Ranking) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v46.0 (Legal Intent & Strict Clarification) activo en puerto ${PORT}`));
