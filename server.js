@@ -46,7 +46,7 @@ async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
     : '';
 
-  const prompt = `Eres un experto en derecho venezolano. Analiza la pregunta y devuelve SOLO JSON:
+  const prompt = `Eres un experto en derecho venezolano. Clasifica y devuelve SOLO JSON:
 {
   "needs_clarification": boolean,
   "clarification_question": string,
@@ -54,12 +54,9 @@ async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   "articulo_num": (Número si se menciona, sino null),
   "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
 }
-
-REGLAS CRÍTICAS:
-- "Choque/Accidente" SIN heridos = CIVIL (3). Keywords: ["daños", "perjuicios", "responsabilidad_civil", "vehiculo"].
-- "Choque" CON heridos = PENAL (6). Keywords: ["lesiones", "homicidio", "culpa"].
-- Ambigüedad Civil/Penal/Laboral = needs_clarification: true.
-
+REGLAS:
+- "Choque/Accidente" SIN mención de heridos = CIVIL (3). Keywords: ["daños", "perjuicios", "responsabilidad_civil"].
+- Ambigüedad = needs_clarification: true.
 ${contextoHistorial}
 PREGUNTA ACTUAL: "${preguntaColoquial}"
 OUTPUT:`;
@@ -76,6 +73,37 @@ OUTPUT:`;
     return JSON.parse(content);
   } catch (error) { 
     return { needs_clarification: false, ley_id: 3, articulo_num: null, text_keywords: [] }; 
+  }
+}
+
+// ✅ FUNCIÓN DE RE-RANKING (FILTRO INTELIGENTE)
+async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
+  if (articulosCandidatos.length === 0) return [];
+  
+  const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] Art. ${a.numero_articulo}: "${a.contenido.substring(0, 200)}..."`).join('\n');
+  
+  const prompt = `Eres un juez supervisor. Tienes una pregunta legal y una lista de artículos candidatos.
+  PREGUNTA: "${pregunta}"
+  CANDIDATOS:
+  ${listaParaIA}
+  
+  TAREA: Devuelve SOLO un array JSON con los índices (ej: [1, 3]) de los artículos que sean REALMENTE RELEVANTES para el caso. Descarta los que usen las palabras clave pero en contextos irrelevantes (ej: canales de agua, gestión de negocios ajenos si no aplica). Si ninguno sirve, devuelve [].
+  OUTPUT:`;
+
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
+      body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.0 })
+    });
+    const data = await res.json();
+    let content = data.choices[0].message.content.trim();
+    if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
+    const indices = JSON.parse(content);
+    return indices.map(i => articulosCandidatos[i-1]).filter(a => a !== undefined);
+  } catch (e) {
+    console.error("Error en Re-ranking:", e);
+    return articulosCandidatos; // Si falla, devolvemos todos por seguridad
   }
 }
 
@@ -109,54 +137,54 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       return res.json({ respuesta: respuestaClarificacion, sessionId: safeSessionId, needs_clarification: true });
     }
 
-    let articulos = [];
+    let articulosCandidatos = [];
     const { ley_id, articulo_num, text_keywords = [] } = clasificacion;
 
+    // 1. Búsqueda Exacta
     if (articulo_num && ley_id) {
       const { data } = await supabase.from('articulos').select('*, leyes(nombre)').eq('numero_articulo', articulo_num.toString()).eq('ley_id', ley_id).limit(1);
-      if (data && data.length > 0) articulos = data;
+      if (data && data.length > 0) articulosCandidatos = data;
     }
 
-    if (articulos.length === 0) {
+    // 2. Búsqueda Semántica (Traemos 5 para tener donde elegir)
+    if (articulosCandidatos.length === 0) {
       try {
         const currentExtractor = await getExtractor();
         const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
         const queryEmbedding = Array.from(output.data);
         const { data, error } = await supabase.rpc('match_articulos', { query_embedding: queryEmbedding, match_threshold: 0.15, match_count: 5, filter_ley_id: ley_id });
-        if (!error && data && data.length > 0) {
-          articulos = data;
-          console.log(`✅ Semántica encontró ${articulos.length} artículos.`);
-        }
+        if (!error && data && data.length > 0) articulosCandidatos = data;
       } catch (e) { console.error("Error semántico:", e); }
     }
 
-    if (articulos.length === 0 && text_keywords.length > 0) {
+    // 3. Búsqueda Textual Agresiva (Traemos 5 para tener donde elegir)
+    if (articulosCandidatos.length === 0 && text_keywords.length > 0) {
       console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva...`);
       const orConditions = text_keywords.flatMap(k => [`contenido.ilike.%${k}%`, `contenido_enriquecido.ilike.%${k}%`]);
-      const { data: textData } = await supabase.from('articulos').select('*, leyes(nombre)').eq('ley_id', ley_id).or(orConditions.join(',')).limit(3);
-      if (textData && textData.length > 0) {
-        articulos = textData;
-        console.log(`✅ Búsqueda Textual encontró ${articulos.length} artículos.`);
-      }
+      const { data: textData } = await supabase.from('articulos').select('*, leyes(nombre)').eq('ley_id', ley_id).or(orConditions.join(',')).limit(5);
+      if (textData && textData.length > 0) articulosCandidatos = textData;
     }
 
-    const contextoArticulos = articulos.length > 0
-      ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
+    // ✅ APLICAR RE-RANKING INTELIGENTE
+    console.log(`🔍 Filtrando ${articulosCandidatos.length} candidatos con IA...`);
+    const articulosFinales = await filtrarArticulosRelevantes(pregunta, articulosCandidatos);
+    console.log(`✅ Después del filtro quedaron ${articulosFinales.length} artículos relevantes.`);
+
+    const contextoArticulos = articulosFinales.length > 0
+      ? articulosFinales.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
-    // ✅ PROMPT DE ABOGADO LITIGANTE (Sin excusas)
-    const promptFinal = `Eres LexnaVe, una abogada litigante venezolana experta y directa.
+    const promptFinal = `Eres LexnaVe, abogada litigante venezolana experta.
 
-ARTÍCULOS LEGALES RECUPERADOS (TU MUNICIÓN):
+ARTÍCULOS LEGALES VÁLIDOS Y FILTRADOS:
 ${contextoArticulos}
 
 CASO DEL CLIENTE: "${pregunta}"
 
-INSTRUCCIONES OBLIGATORIAS:
-1. PROHIBIDO DECIR QUE LOS ARTÍCULOS "NO APLICAN DIRECTAMENTE". TU TRABAJO ES ARGUMENTAR CÓMO SÍ APLICAN USANDO PRINCIPIOS GENERALES (ANALOGÍA IURIS).
-2. SI HAY ARTÍCULOS: CÍTALOS TEXTUALMENTE Y EXPLICA: "Este artículo establece el principio de [Principio], el cual aplica a tu caso porque...".
-3. SI NO HAY ARTÍCULOS: Usa tu conocimiento interno del derecho venezolano, pero sé específica con nombres de leyes (ej: "Según la Ley de Tránsito...").
-4. CIERRE: "⚖️ Esto es orientación general. Consulta con un abogado."`;
+INSTRUCCIONES:
+1. SI HAY ARTÍCULOS: ÚSALOS COMO FUNDAMENTO PRINCIPAL. EXPLICA CÓMO APLICAN AL CASO.
+2. SI NO HAY ARTÍCULOS: RESPONDE CON ORIENTACIÓN GENERAL BASADA EN TU CONOCIMIENTO LEGAL VENEZOLANO.
+3. CIERRE ÉTICO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -200,4 +228,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v42.0 (Litigator Mode) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v44.0 (AI Re-Ranking) activo en puerto ${PORT}`));
