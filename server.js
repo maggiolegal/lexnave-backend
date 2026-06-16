@@ -78,6 +78,7 @@ async function guardarMensaje(sessionId, role, content) {
   await supabase.from('chat_history').insert({ session_id: sessionId, role, content });
 }
 
+// ✅ RUTA DE CONSULTA PRINCIPAL
 app.post('/api/consultar', verifyAuth, async (req, res) => {
   try {
     const { pregunta, sessionId: clientSessionId } = req.body;
@@ -104,7 +105,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (data && data.length > 0) articulos = data;
     }
 
-    // 2. Búsqueda Semántica (Intento 1)
+    // 2. Búsqueda Semántica Filtrada
     if (articulos.length === 0) {
       try {
         const currentExtractor = await getExtractor();
@@ -125,9 +126,9 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       } catch (e) { console.error("Error semántico:", e); }
     }
 
-    // 3. Búsqueda Textual Agresiva (Intento 2 - La Salvación)
+    // 3. Búsqueda Textual Agresiva
     if (articulos.length === 0 && text_keywords.length > 0) {
-      console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva con keywords: ${text_keywords.join(', ')}`);
+      console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva...`);
       
       const orConditions = text_keywords.flatMap(k => [
         `contenido.ilike.%${k}%`,
@@ -143,8 +144,6 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (textData && textData.length > 0) {
         articulos = textData;
         console.log(`✅ Búsqueda Textual encontró ${articulos.length} artículos.`);
-      } else {
-        console.log(`❌ Búsqueda Textual tampoco encontró nada en Ley ID ${ley_id}.`);
       }
     }
 
@@ -152,18 +151,17 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       ? articulos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
-    // ✅ PROMPT FINAL AJUSTADO PARA SER MENOS CRÍTICO Y MÁS UTIL
     const promptFinal = `Eres LexnaVe, abogada venezolana experta y empática.
 
-ARTÍCULOS RECUPERADOS DE LA BASE DE DATOS (RELACIONADOS CON EL TEMA):
+ARTÍCULOS RECUPERADOS DE LA BASE DE DATOS:
 ${contextoArticulos}
 
 PREGUNTA DEL USUARIO: "${pregunta}"
 
 INSTRUCCIONES OBLIGATORIAS:
-1. SI HAY ARTÍCULOS ARRIBA: **ÚSALOS SIEMPRE**. Aunque parezcan generales, úsalos como fundamento legal. Explica cómo sus principios (ej: obligación de entregar, definición de matrimonio) aplican al caso concreto del usuario. NO DIGAS QUE NO SON RELEVANTES.
-2. SI NO HAY ARTÍCULOS (Dice NO_HAY_ARTICULOS...): RESPONDE CON ORIENTACIÓN GENERAL BASADA EN TU CONOCIMIENTO LEGAL VENEZOLANO, PERO ACLARA QUE NO SE ENCONTRARON ARTÍCULOS ESPECÍFICOS EN LA BASE DE DATOS ACTUAL.
-3. ESTRUCTURA: Empatia -> Citación de los artículos recuperados -> Explicación aplicada -> Cierre ético.
+1. SI HAY ARTÍCULOS ARRIBA: ÚSALOS SIEMPRE COMO FUNDAMENTO. EXPLICA CÓMO APLICAN AL CASO.
+2. SI NO HAY ARTÍCULOS: RESPONDE CON ORIENTACIÓN GENERAL BASADA EN TU CONOCIMIENTO LEGAL VENEZOLANO, PERO ACLARA QUE NO SE ENCONTRARON ARTÍCULOS ESPECÍFICOS EN LA BASE DE DATOS ACTUAL.
+3. ESTRUCTURA: Empatia -> Citación/Explicación -> Cierre ético.
 4. CIERRE ÉTICO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -183,5 +181,62 @@ INSTRUCCIONES OBLIGATORIAS:
   }
 });
 
+// ✅ RUTA PARA ACTUALIZAR EMBEDDINGS EN LOTES
+app.get('/api/admin/update-embeddings', async (req, res) => {
+  console.log("🚀 Verificando estado y procesando lote...");
+  try {
+    // Contar cuántos faltan (tienen texto pero no vector)
+    const { count } = await supabase
+      .from('articulos')
+      .select('*', { count: 'exact', head: true })
+      .not('contenido_enriquecido', 'is', null)
+      .eq('embedding', null);
+
+    if (!count || count === 0) {
+        return res.json({ msg: "✅ ¡TODO LISTO! No quedan artículos por actualizar." });
+    }
+
+    // Traer un lote de 50
+    const { data: articulos } = await supabase
+      .from('articulos')
+      .select('id, contenido_enriquecido')
+      .not('contenido_enriquecido', 'is', null)
+      .eq('embedding', null)
+      .limit(50);
+
+    if (!articulos || articulos.length === 0) {
+         return res.json({ msg: "✅ ¡TODO LISTO! No quedan artículos por actualizar." });
+    }
+
+    const currentExtractor = await getExtractor();
+    let countActualizados = 0;
+
+    for (const art of articulos) {
+      try {
+        const output = await currentExtractor(art.contenido_enriquecido, { pooling: 'mean', normalize: true });
+        const embedding = Array.from(output.data);
+        
+        await supabase
+          .from('articulos')
+          .update({ embedding: embedding }) 
+          .eq('id', art.id);
+          
+        countActualizados++;
+      } catch (err) {
+        console.error(`Error con art ${art.id}:`, err.message);
+      }
+    }
+
+    res.json({ 
+        msg: `✅ Lote de ${countActualizados} actualizado.`, 
+        restantes: count - countActualizados,
+        instruction: "Recarga para continuar." 
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v34.0 (Force Citation) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v36.0 (Full System) activo en puerto ${PORT}`));
