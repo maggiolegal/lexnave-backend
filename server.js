@@ -26,7 +26,6 @@ function safeJsonParse(rawText) {
 
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (!articulosCandidatos || articulosCandidatos.length === 0) return [];
-  
   const promptFiltro = `Actúa como Juez de Admisión. Identifica artículos útiles para: "${pregunta}". Responde SOLO JSON [id1, id2]. Artículos: ${JSON.stringify(articulosCandidatos, null, 2)}`;
 
   let response;
@@ -45,7 +44,6 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
       response_format: { type: "json_object" }
     });
   }
-
   const parsed = safeJsonParse(response.choices[0]?.message?.content || "");
   const ids = Array.isArray(parsed) ? parsed : (parsed.ids || []);
   return ids.length > 0 ? articulosCandidatos.filter(art => ids.includes(art.id)) : articulosCandidatos.slice(0, 3);
@@ -55,39 +53,35 @@ app.post('/api/consultar', async (req, res) => {
   const { pregunta, articulosRaw } = req.body;
   
   try {
-    // Clasificación
-    const promptClasificacion = `Analiza esta consulta legal venezolana y devuelve JSON: { "needs_clarification": boolean, "clarification_question": string|null }. Consulta: "${pregunta}"`;
+    // CLASIFICACIÓN ANTI-REPREGUNTA
+    const promptClasificacion = `Analiza la consulta. NO pidas datos adicionales. Responde JSON: { "needs_clarification": false, "ley_id": number|null, "legal_intent": string }. Consulta: "${pregunta}"`;
     const resClasificacion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: promptClasificacion }],
-      model: 'llama-3.1-8b-instant', // Usamos 8b para clasificar rápido
+      model: 'llama-3.1-8b-instant',
       temperature: 0.1,
       response_format: { type: "json_object" }
     });
 
     const metadata = safeJsonParse(resClasificacion.choices[0]?.message?.content);
-    if (metadata.needs_clarification) return res.json({ respuesta: `🔍 ${metadata.clarification_question}` });
-
     const articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosRaw || []);
     
-    // System Prompt Optimizado
+    // SYSTEM PROMPT DE ESTRATEGA
     const systemPrompt = `
     Eres LexnaVe, Abogado Senior en Derecho Venezolano. Tu respuesta DEBE ser precisa al 100%.
     
-    REGLAS DE ORO:
-    1. PROPIEDAD HORIZONTAL: Fachadas y áreas comunes requieren 100% de aprobación (Art. 5 y 26 LPH). Gastos comunes tienen fuerza ejecutiva (Art. 14 LPH).
-    2. COBRO DE PAGARÉS/LETRAS: Usa siempre el Procedimiento de Intimación (Art. 640 CPC). Es rápido y ejecutivo. 
-    3. LAPSOS PROCESALES: 
-       - Intimación: 10 días de despacho para oponerse.
-       - Procedimiento Breve: 10 días para promover y evacuar.
-       - Acto Conclusivo (Penal): 6 meses.
-       - Impugnación Asamblea: 30 días continuos.
-    4. ACCIÓN PRIVADA (Difamación/Injuria): NUNCA envíes a Fiscalía. Acusación Privada directa ante el Tribunal de Juicio.
-    5. SI EL MODELO 8B ES UTILIZADO: Sé conciso, directo al punto, cita el artículo y el lapso.
-    
-    Estructura siempre en: 1. Recomendación Estratégica, 2. Fundamento Legal (Artículo), 3. Advertencia legal final.
+    ⚠️ INSTRUCCIÓN DE COMPORTAMIENTO:
+    1. PROHIBIDO REPREGUNTAR: No eres un funcionario administrativo. Si faltan datos, asume el escenario más probable y da una respuesta condicional ("Si ocurre A, haz B; si ocurre C, haz D").
+    2. RIGOR PROCESAL: 
+       - Arrendamiento Vivienda: Agotamiento administrativo SUNAVI (Art. 101 LRCV) es requisito para admisión de demanda de desalojo. El desalojo es excepcional (Art. 91 LRCV). 
+       - Intimación (Art. 640 CPC) para cobro de cánones vencidos es vía ejecutiva separada y debe promoverse inmediatamente.
+    3. ESTRUCTURA OBLIGATORIA: 
+       1. Hoja de Ruta Estratégica (Acciones concretas). 
+       2. Fundamento Legal (Artículos específicos). 
+       3. Advertencia Legal.
+    4. RESPUESTA TÉCNICA: Ve directo al punto, cita el artículo y el lapso. No expliques teorías jurídicas largas.
     `;
     
-    const promptFinal = `Contexto: ${JSON.stringify(articulosFiltrados)}. Consulta: "${pregunta}"`;
+    const promptFinal = `Contexto legal: ${JSON.stringify(articulosFiltrados)}. Consulta del usuario: "${pregunta}"`;
 
     let responseFinal;
     let esModeloRapido = false;
