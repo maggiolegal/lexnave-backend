@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 const supabase = createClient(
-  process.env.SUPABASE_URL || "[https://dhcacnfuummsgpxujpjz.supabase.co](https://dhcacnfuummsgpxujpjz.supabase.co)",
+  process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co",
   process.env.SUPABASE_KEY,
   {
     auth: { persistSession: false },
@@ -42,10 +42,8 @@ async function getExtractor() {
   return extractor;
 }
 
-// Lógica de limpieza ultra-segura para blindar el JSON contra copias corruptas
 function limpiarRespuestaJson(textoSucio) {
   let textoClaro = textoSucio.trim();
-  // Buscamos la apertura y cierre exactos del JSON
   const posicionApertura = textoClaro.indexOf('{');
   const posicionCierre = textoClaro.lastIndexOf('}');
   
@@ -55,7 +53,7 @@ function limpiarRespuestaJson(textoSucio) {
   return textoClaro;
 }
 
-// ⚖️ CLASIFICACIÓN OPTIMIZADA
+// ⚖️ CLASIFICACIÓN OPTIMIZADA (URL LIMPIA)
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const contextoHistorial = historialReciente.length > 0 
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
@@ -82,8 +80,10 @@ ${contextoHistorial}
 PREGUNTA ACTUAL: "${preguntaColoquial}"
 OUTPUT:`;
 
+  const urlGroq = "https://api.groq.com/openai/v1/chat/completions";
+
   try {
-    const res = await fetch("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", {
+    const res = await fetch(urlGroq, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
       body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.0 })
@@ -97,7 +97,7 @@ OUTPUT:`;
   }
 }
 
-// 🔍 FILTRO SUPREMO FLEXIBILIZADO
+// 🔍 FILTRO SUPREMO FLEXIBILIZADO (URL LIMPIA)
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (articulosCandidatos.length === 0) return [];
   const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido.substring(0, 200)}..."`).join('\n');
@@ -112,8 +112,10 @@ ${listaParaIA}
 Devuelve SOLO un array JSON con los indices seleccionados, por ejemplo: [1, 2]. Si absolutamente ninguno tiene relacion, devuelve [].
 OUTPUT:`;
 
+  const urlGroq = "https://api.groq.com/openai/v1/chat/completions";
+
   try {
-    const res = await fetch("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", {
+    const res = await fetch(urlGroq, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
       body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.0 })
@@ -145,7 +147,7 @@ async function guardarMensaje(sessionId, role, content) {
   await supabase.from('chat_history').insert({ session_id: sessionId, role, content });
 }
 
-// 📥 ENDPOINT PRINCIPAL: CONSULTAR
+// 📥 ENDPOINT PRINCIPAL: CONSULTAR (URL LIMPIA)
 app.post('/api/consultar', verifyAuth, async (req, res) => {
   try {
     const { pregunta, sessionId: clientSessionId } = req.body;
@@ -212,14 +214,16 @@ PREGUNTA DEL USUARIO: "${pregunta}"
 INSTRUCCIONES CRITICAS DE REDACCION Y CONTENIDO:
 1. ESTRUCTURA FORENSE: No respondas con parrafos planos e improvisados. Inicia con una breve introduccion conceptual que defina el instituto procesal o sustantivo consultado, explicando por que es crucial en nuestra practica juridica. Organiza el desarrollo usando subtitulos claros e informativos basados en numeros (ej: "1. El Momento Procesal", "2. El Proposito", etc.).
 2. USO NORMATIVO Y CONOCIMIENTO INTERNO ESPECIFICO:
-   - Apoyate decididamente en los articulos recuperados, pero recuerda que eres una experta senior: si la consulta versa sobre lapsos procesales, dinamicas probatorias, juicios especificos (como inquisicion de paternidad, juicios orales o accion reivindicatoria) y los articulos de la base de datos son parciales o tangenciales, DEBES recurrir a tu vasto conocimiento interno del Codigo de Procedimiento Civil (CPC), Codigo Civil, LOPNNA o jurisprudencia del TSJ (especialmente de las Salas Constitucional y de Casacion Civil).
+   - Apoyate decididamente en los articulos recuperados, pero recuerda que eres una experta senior: si la consulta versa sobre lapsos procesales, dinamicas probatorias, juicios específicos (como inquisicion de paternidad, juicios orales o accion reivindicatoria) y los articulos de la base de datos son parciales o tangenciales, DEBES recurrir a tu vasto conocimiento interno del Codigo de Procedimiento Civil (CPC), Codigo Civil, LOPNNA o jurisprudencia del TSJ (especialmente de las Salas Constitucional y de Casacion Civil).
    - Detalla lapsos temporales exactos de forma matematica (por ejemplo, los 15 dias de promoc, 3 de oposicion, 3 de admision y 30 de evacuacion del procedimiento ordinario civil, haciendo mencion expresa a los articulos 388, 392, 396, 397, 398 y 400 del CPC).
    - Si hablas de lapsos, explica siempre la "Regla de Oro": como opera el computo en base a "dias de despacho" de conformidad con el articulo 197 del CPC.
 3. FORMATO VISUAL EXIGIDO (TABLAS MARKDOWN): Cuando la respuesta involucre fases secuenciales, plazos cronologicos estructurados o comparativas complejas (como las fases del lapso probatorio), estas OBLIGADA a diagramar una tabla en formato Markdown con columnas claras (ej: Fase | Duracion / Dias de Despacho | Proposito Procesal | Fundamento Legal).
 4. DINAMICA DE CONEXION ENTRE INSTITUTOS: Explica como se interconectan los conceptos. Por ejemplo, vincula como una adecuada "fijacion de los hechos" (Art. 389 CPC) purga el proceso, determinando de manera matematica que es lo que se va a promover y evacuar en el posterior "lapso de pruebas", evitando el desgaste innecesario sobre hechos ya admitidos o pacificos.
 5. CIERRE ETICO INVARIABLE: Finaliza tu respuesta en una linea separada, usando estrictamente este formato: "⚖️ Esto es orientacion general. Consulta con un abogado."`;
 
-    const groqRes = await fetch("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", {
+    const urlGroq = "https://api.groq.com/openai/v1/chat/completions";
+
+    const groqRes = await fetch(urlGroq, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
       body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: promptFinal }], temperature: 0.15 })
