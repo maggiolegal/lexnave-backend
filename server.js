@@ -41,6 +41,7 @@ async function getExtractor() {
   return extractor;
 }
 
+// ✅ CLASIFICADOR CON REGLAS DE CLARIFICACIÓN CORREGIDAS
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const contextoHistorial = historialReciente.length > 0 
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
@@ -55,9 +56,16 @@ async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   "articulo_num": (Número si se menciona, sino null),
   "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
 }
-REGLAS DE CLARIFICACIÓN OBLIGATORIA:
-1. "Choque" sin heridos -> Pregunta: "¿Lesiones o daños materiales?".
-2. "Deuda" sin origen -> Pregunta: "¿Préstamo, factura o salario?".
+
+REGLAS DE CLARIFICACIÓN ESTRICTAS (SOLO ACTIVAR SI NO HAY CONTEXTO PREVIO QUE LO ACLARE):
+1. Si la pregunta es MUY AMBIGUA entre materias (ej: "me deben dinero" sin más contexto) -> Pregunta: "¿Es por préstamo, factura o salario?".
+2. Si menciona "choque" sin especificar daños -> Pregunta: "¿Lesiones o daños materiales?".
+3. NO preguntar si la pregunta ya tiene términos procesales claros (ej: "juicio breve", "divorcio", "paternidad"). En esos casos, asigna la ley y sigue.
+
+REGLAS DE INTENCIÓN:
+- Juicios/Procedimientos -> "procesal_civil" (Ley 7).
+- Familia/Paternidad/Divorcio -> "familia" (Ley 3).
+- Constitucional/Presidente/Referendo -> "constitucional" (Ley 1).
 
 ${contextoHistorial}
 PREGUNTA ACTUAL: "${preguntaColoquial}"
@@ -82,18 +90,13 @@ OUTPUT:`;
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (articulosCandidatos.length === 0) return [];
   
-  // Incluimos el nombre de la ley para que la IA sepa de dónde viene cada artículo
   const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] ${a.leyes?.nombre} Art. ${a.numero_articulo}: "${a.contenido.substring(0, 150)}..."`).join('\n');
   
-  const prompt = `Eres la Corte Suprema de Justicia de Venezuela. Tienes una pregunta y candidatos de DISTINTAS leyes.
-  PREGUNTA: "${pregunta}"
+  const prompt = `Eres la Corte Suprema de Justicia. Selecciona SOLO los artículos estrictamente aplicables a: "${pregunta}".
   CANDIDATOS:
   ${listaParaIA}
   
-  TAREA: Selecciona SOLO los artículos estrictamente aplicables. 
-  - Si la pregunta es sobre "Presidente" o "Seguridad Nacional", descarta el Código Civil y busca en la CRBV.
-  - Si la pregunta es sobre "Divorcio", descarta el Código Penal.
-  - Devuelve SOLO un array JSON con los índices (ej: [1, 3]). Si ninguno sirve, [].
+  TAREA: Devuelve SOLO un array JSON con los índices (ej: [1, 3]). Descarta artículos de leyes incorrectas (ej: Civil para temas Penales). Si ninguno sirve, [].
   OUTPUT:`;
 
   try {
@@ -152,29 +155,27 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     let articulosCandidatos = [];
     const { ley_id, articulo_num, text_keywords = [] } = clasificacion;
 
-    // 1. Búsqueda Exacta (Prioridad Máxima)
+    // 1. Búsqueda Exacta
     if (articulo_num && ley_id) {
       const { data } = await supabase.from('articulos').select('*, leyes(nombre)').eq('numero_articulo', articulo_num.toString()).eq('ley_id', ley_id).limit(1);
       if (data && data.length > 0) articulosCandidatos = data;
     }
 
-    // 2. Búsqueda Semántica TRANSVERSAL (Sin filtro de ley_id)
+    // 2. Búsqueda Semántica TRANSVERSAL
     if (articulosCandidatos.length === 0) {
       try {
         const currentExtractor = await getExtractor();
         const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
         const queryEmbedding = Array.from(output.data);
-        // Buscamos en TODA la base de datos
         const { data, error } = await supabase.rpc('match_articulos', { query_embedding: queryEmbedding, match_threshold: 0.15, match_count: 10 });
         if (!error && data && data.length > 0) articulosCandidatos = data;
       } catch (e) { console.error("Error semántico:", e); }
     }
 
-    // 3. Búsqueda Textual Agresiva TRANSVERSAL (Sin filtro de ley_id)
+    // 3. Búsqueda Textual Agresiva TRANSVERSAL
     if (articulosCandidatos.length === 0 && text_keywords.length > 0) {
       console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva Transversal...`);
       const orConditions = text_keywords.flatMap(k => [`contenido.ilike.%${k}%`, `contenido_enriquecido.ilike.%${k}%`]);
-      // Buscamos en TODA la base de datos
       const { data: textData } = await supabase.from('articulos').select('*, leyes(nombre)').or(orConditions.join(',')).limit(10);
       if (textData && textData.length > 0) articulosCandidatos = textData;
     }
@@ -242,4 +243,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v47.0 (Transversal Search) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v48.0 (Strict Clarification Fix) activo en puerto ${PORT}`));
