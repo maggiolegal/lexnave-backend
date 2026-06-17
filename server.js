@@ -41,7 +41,6 @@ async function getExtractor() {
   return extractor;
 }
 
-// ✅ CLASIFICADOR CON REGLAS DE CLARIFICACIÓN CORREGIDAS
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const contextoHistorial = historialReciente.length > 0 
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
@@ -56,16 +55,9 @@ async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   "articulo_num": (Número si se menciona, sino null),
   "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
 }
-
-REGLAS DE CLARIFICACIÓN ESTRICTAS (SOLO ACTIVAR SI NO HAY CONTEXTO PREVIO QUE LO ACLARE):
-1. Si la pregunta es MUY AMBIGUA entre materias (ej: "me deben dinero" sin más contexto) -> Pregunta: "¿Es por préstamo, factura o salario?".
-2. Si menciona "choque" sin especificar daños -> Pregunta: "¿Lesiones o daños materiales?".
-3. NO preguntar si la pregunta ya tiene términos procesales claros (ej: "juicio breve", "divorcio", "paternidad"). En esos casos, asigna la ley y sigue.
-
-REGLAS DE INTENCIÓN:
-- Juicios/Procedimientos -> "procesal_civil" (Ley 7).
-- Familia/Paternidad/Divorcio -> "familia" (Ley 3).
-- Constitucional/Presidente/Referendo -> "constitucional" (Ley 1).
+REGLAS DE CLARIFICACIÓN ESTRICTAS:
+1. Solo preguntar si la ambigüedad es total (ej: "me deben dinero").
+2. NO preguntar si hay términos procesales claros (ej: "juicio breve", "fijación de hechos").
 
 ${contextoHistorial}
 PREGUNTA ACTUAL: "${preguntaColoquial}"
@@ -86,17 +78,14 @@ OUTPUT:`;
   }
 }
 
-// ✅ RE-RANKER TRANSVERSAL (El Juez Supremo)
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (articulosCandidatos.length === 0) return [];
-  
   const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] ${a.leyes?.nombre} Art. ${a.numero_articulo}: "${a.contenido.substring(0, 150)}..."`).join('\n');
   
-  const prompt = `Eres la Corte Suprema de Justicia. Selecciona SOLO los artículos estrictamente aplicables a: "${pregunta}".
+  const prompt = `Eres la Corte Suprema. Selecciona SOLO los artículos estrictamente aplicables a: "${pregunta}".
   CANDIDATOS:
   ${listaParaIA}
-  
-  TAREA: Devuelve SOLO un array JSON con los índices (ej: [1, 3]). Descarta artículos de leyes incorrectas (ej: Civil para temas Penales). Si ninguno sirve, [].
+  Devuelve SOLO un array JSON con los índices (ej: [1, 3]). Si ninguno sirve, [].
   OUTPUT:`;
 
   try {
@@ -110,14 +99,12 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
     content = content.replace(/```json/g, '').replace(/```/g, '').trim();
     const start = content.indexOf('[');
     const end = content.lastIndexOf(']');
-    
     if (start !== -1 && end !== -1) {
       const indices = JSON.parse(content.substring(start, end + 1));
       return indices.map(i => articulosCandidatos[i-1]).filter(a => a !== undefined);
     }
     return [];
   } catch (e) {
-    console.error("Error en Re-ranking:", e.message);
     return articulosCandidatos.slice(0, 1); 
   }
 }
@@ -161,26 +148,25 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (data && data.length > 0) articulosCandidatos = data;
     }
 
-    // 2. Búsqueda Semántica TRANSVERSAL
+    // 2. Búsqueda Semántica TRANSVERSAL (Aumentamos a 15 candidatos)
     if (articulosCandidatos.length === 0) {
       try {
         const currentExtractor = await getExtractor();
         const output = await currentExtractor(pregunta, { pooling: 'mean', normalize: true });
         const queryEmbedding = Array.from(output.data);
-        const { data, error } = await supabase.rpc('match_articulos', { query_embedding: queryEmbedding, match_threshold: 0.15, match_count: 10 });
+        const { data, error } = await supabase.rpc('match_articulos', { query_embedding: queryEmbedding, match_threshold: 0.15, match_count: 15 });
         if (!error && data && data.length > 0) articulosCandidatos = data;
       } catch (e) { console.error("Error semántico:", e); }
     }
 
-    // 3. Búsqueda Textual Agresiva TRANSVERSAL
+    // 3. Búsqueda Textual Agresiva TRANSVERSAL (Aumentamos a 15 candidatos)
     if (articulosCandidatos.length === 0 && text_keywords.length > 0) {
       console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva Transversal...`);
       const orConditions = text_keywords.flatMap(k => [`contenido.ilike.%${k}%`, `contenido_enriquecido.ilike.%${k}%`]);
-      const { data: textData } = await supabase.from('articulos').select('*, leyes(nombre)').or(orConditions.join(',')).limit(10);
+      const { data: textData } = await supabase.from('articulos').select('*, leyes(nombre)').or(orConditions.join(',')).limit(15);
       if (textData && textData.length > 0) articulosCandidatos = textData;
     }
 
-    // ✅ APLICAR RE-RANKING SUPREMO
     console.log(`🔍 Filtrando ${articulosCandidatos.length} candidatos transversales con IA...`);
     const articulosFinales = await filtrarArticulosRelevantes(pregunta, articulosCandidatos);
     console.log(`✅ Después del filtro supremo quedaron ${articulosFinales.length} artículos.`);
@@ -189,17 +175,19 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       ? articulosFinales.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
-    const promptFinal = `Eres LexnaVe, abogada litigante venezolana experta.
+    // ✅ PROMPT DE ABOGADO SENIOR (Con permiso para usar conocimiento interno si es necesario)
+    const promptFinal = `Eres LexnaVe, abogada litigante venezolana experta y técnica.
 
-ARTÍCULOS LEGALES VÁLIDOS Y FILTRADOS:
+ARTÍCULOS RECUPERADOS:
 ${contextoArticulos}
 
-CASO DEL CLIENTE: "${pregunta}"
+PREGUNTA: "${pregunta}"
 
-INSTRUCCIONES:
-1. SI HAY ARTÍCULOS: ÚSALOS COMO FUNDAMENTO PRINCIPAL. EXPLICA CÓMO APLICAN AL CASO.
-2. SI NO HAY ARTÍCULOS: RESPONDE CON ORIENTACIÓN GENERAL BASADA EN TU CONOCIMIENTO LEGAL VENEZOLANO.
-3. CIERRE ÉTICO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
+INSTRUCCIONES DE EXPERTO:
+1. SI HAY ARTÍCULOS: ÚSALOS COMO BASE.
+2. CONOCIMIENTO INTERNO: Si la pregunta es sobre un instituto procesal específico (ej: "fijación de hechos", "despacho saneador") y los artículos recuperados son tangenciales, COMPLEMENTA con tu conocimiento preciso del CPC (ej: cita el Art. 389 para fijación de hechos o Art. 868 para juicio oral) para dar una respuesta técnica completa.
+3. EXPLICA EL CONCEPTO: No solo cites, explica cómo funciona en la práctica forense venezolana.
+4. CIERRE ÉTICO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
     const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -243,4 +231,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v48.0 (Strict Clarification Fix) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v49.0 (Senior Lawyer Mode) activo en puerto ${PORT}`));
