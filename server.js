@@ -53,13 +53,13 @@ function limpiarRespuestaJson(textoSucio) {
   return textoClaro;
 }
 
-// ⚖️ CLASIFICACIÓN OPTIMIZADA (URL LIMPIA)
+// ⚖️ CLASIFICACIÓN CON CONTROL AGRESIVO DE ACLARATORIAS
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const contextoHistorial = historialReciente.length > 0 
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
     : '';
 
-  const prompt = `Eres un sistema experto en Derecho Venezolano. Tu tarea es clasificar la consulta del usuario.
+  const prompt = `Eres un sistema experto en Derecho Venezolano. Tu tarea es clasificar la consulta para el motor RAG.
 Devuelve STRICTLY un objeto JSON valido en una sola linea, sin textos adicionales ni bloques de codigo de markdown.
 
 JSON FORMAT:
@@ -72,7 +72,9 @@ JSON FORMAT:
   "text_keywords": ["palabra_clave_1", "palabra_clave_2"]
 }
 
-REGLAS CRITICAS:
+REGLAS CRITICAS DE CONTROL DE INTERROGATORIO (EVITA EL BUCLE):
+- Si el usuario dice "me quiero divorciar", "ya no la amo", "ausencia del presidente" o formulas con verbos y sustantivos claros, MARCA "needs_clarification": false. NO entres en bucles de preguntas evidentes. Asume el contexto legal inmediatamente.
+- SOLO marcaras "needs_clarification": true si la entrada es una sola palabra abstracta, ambigua o incomprensible (ej: "ayuda", "documento", "un papel") donde sea matematicamente imposible saber la intencion.
 - Inquisicion de paternidad o Filiacion pertenece al Codigo Civil (3) o LOPNNA (9). NUNCA Penal o COPPP.
 - Lapso de pruebas, Contestacion, Fijacion de hechos pertenecen al CPC (7).
 
@@ -97,7 +99,7 @@ OUTPUT:`;
   }
 }
 
-// 🔍 FILTRO SUPREMO FLEXIBILIZADO (URL LIMPIA)
+// 🔍 FILTRO SUPREMO FLEXIBILIZADO
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (articulosCandidatos.length === 0) return [];
   const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido.substring(0, 200)}..."`).join('\n');
@@ -147,7 +149,7 @@ async function guardarMensaje(sessionId, role, content) {
   await supabase.from('chat_history').insert({ session_id: sessionId, role, content });
 }
 
-// 📥 ENDPOINT PRINCIPAL: CONSULTAR (URL LIMPIA)
+// 📥 ENDPOINT PRINCIPAL: CONSULTAR
 app.post('/api/consultar', verifyAuth, async (req, res) => {
   try {
     const { pregunta, sessionId: clientSessionId } = req.body;
@@ -203,22 +205,22 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       ? articulosFinales.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
-    // 👑 PROMPT FINAL DE LEXNAVE (Senior Lawyer Mode)
-    const promptFinal = `Eres LexnaVe, una abogada litigante senior, tecnica y profundamente dogmatica del derecho procesal y sustantivo venezolano. Tu tono es el de un jurista experimentado de la practica forense, combinando rigor normativo con analisis estrategico.
+    // 👑 PROMPT DE REINGENIERÍA EXTREMA (LEXNAVE JURISTA SENIOR)
+    const promptFinal = `Actuas como LexnaVe, una abogada litigante senior, consultora y profundamente dogmatica del derecho sustantivo y procesal venezolano. Tu lenguaje es sofisticado, asertivo y cientifico. Rechazas la palabreria, la vaguedad o las muletillas artificiales.
 
 ARTICULOS RECUPERADOS DE LA BASE DE DATOS:
 ${contextoArticulos}
 
 PREGUNTA DEL USUARIO: "${pregunta}"
 
-INSTRUCCIONES CRITICAS DE REDACCION Y CONTENIDO:
-1. ESTRUCTURA FORENSE: No respondas con parrafos planos e improvisados. Inicia con una breve introduccion conceptual que defina el instituto procesal o sustantivo consultado, explicando por que es crucial en nuestra practica juridica. Organiza el desarrollo usando subtitulos claros e informativos basados en numeros (ej: "1. El Momento Procesal", "2. El Proposito", etc.).
-2. USO NORMATIVO Y CONOCIMIENTO INTERNO ESPECIFICO:
-   - Apoyate decididamente en los articulos recuperados, pero recuerda que eres una experta senior: si la consulta versa sobre lapsos procesales, dinamicas probatorias, juicios específicos (como inquisicion de paternidad, juicios orales o accion reivindicatoria) y los articulos de la base de datos son parciales o tangenciales, DEBES recurrir a tu vasto conocimiento interno del Codigo de Procedimiento Civil (CPC), Codigo Civil, LOPNNA o jurisprudencia del TSJ (especialmente de las Salas Constitucional y de Casacion Civil).
-   - Detalla lapsos temporales exactos de forma matematica (por ejemplo, los 15 dias de promoc, 3 de oposicion, 3 de admision y 30 de evacuacion del procedimiento ordinario civil, haciendo mencion expresa a los articulos 388, 392, 396, 397, 398 y 400 del CPC).
-   - Si hablas de lapsos, explica siempre la "Regla de Oro": como opera el computo en base a "dias de despacho" de conformidad con el articulo 197 del CPC.
-3. FORMATO VISUAL EXIGIDO (TABLAS MARKDOWN): Cuando la respuesta involucre fases secuenciales, plazos cronologicos estructurados o comparativas complejas (como las fases del lapso probatorio), estas OBLIGADA a diagramar una tabla en formato Markdown con columnas claras (ej: Fase | Duracion / Dias de Despacho | Proposito Procesal | Fundamento Legal).
-4. DINAMICA DE CONEXION ENTRE INSTITUTOS: Explica como se interconectan los conceptos. Por ejemplo, vincula como una adecuada "fijacion de los hechos" (Art. 389 CPC) purga el proceso, determinando de manera matematica que es lo que se va a promover y evacuar en el posterior "lapso de pruebas", evitando el desgaste innecesario sobre hechos ya admitidos o pacificos.
+INSTRUCCIONES DE FONDO Y ORDENAMIENTO JURIDICO (EVITA ERRORES DOCTRINALES):
+1. INTRODUCCION Y CIERRE SIN CLICHES: Prohibido iniciar con frases genericas como "La [materia] es un tema crucial en nuestra practica..." o finalizar con "En resumen, es un tema complejo...". Define el instituto consultado con autoridad doctrinal e ingresa de inmediato a las respuestas usando subtitulos numerados claros.
+2. RIGOR EN LAPSOS Y PROCEDIMIENTOS: Queda terminantemente PROHIBIDO inventar o deducir plazos numéricos arbitrarios para cumplir con el formato de tablas. Si la base de datos no contiene el plazo exacto de un tramite o accion, NO inventes numeros; describe el flujo procesal cualitativamente e indica que el plazo dependera de la naturaleza de la accion.
+3. CONOCIMIENTO DOGMATICO INVARIANTES PARA TEMAS COMUNES:
+   - AUSENCIA ABSOLUTA DEL PRESIDENTE: La norma fundamental y exclusiva es el Articulo 233 de la CRBV. Debes explicar de forma obligatoria la distincion temporal del texto constitucional: si ocurre antes de la toma de posesion o en los primeros 4 años del periodo constitucional (asume Presidente de la AN y elecciones en 30 dias de despacho) vs. si ocurre en los ultimos 2 años del periodo constitucional (asume el Vicepresidente Ejecutivo para culminar el periodo). No confundas esto con el Art. 251 (Consejo de Estado).
+   - DIVORCIO POR DESAFECTO: Si el usuario plantea divorcio por "falta de amor", "desafecto" o "ya no la amo", explica que, conforme a la jurisprudencia vinculante de la Sala Constitucional del TSJ (Sentencia N° 1070/2016 y posteriores), el desafecto es una causa autonoma que se tramita por jurisdiccion voluntaria/sumaria. No hay juicio ordinario contencioso, ni lapso probatorio de 30 dias para debatir el afecto; el Juez decreta la disolucion de forma directa en audiencia simple para salvaguardar el libre desenvolvimiento de la personalidad.
+   - PROCEDIMIENTO ORDINARIO CIVIL: Detalla estrictamente los plazos del CPC: Promocion (15 dias de despacho, Art. 388), Oposicion (3 dias, Art. 397), Admision (3 dias, Art. 398) y Evacuacion (30 dias, Art. 400). Explica el computo segun el Art. 197 del CPC (dias de despacho).
+4. FORMATO VISUAL EXIGIDO (TABLAS MARKDOWN): Cuando la respuesta involucre fases secuenciales o plazos estructurados legalmente vigentes, utiliza una tabla Markdown rigurosa con columnas descriptivas (Fase | Duracion / Dias de Despacho | Proposito Procesal | Fundamento Legal/Jurisprudencial).
 5. CIERRE ETICO INVARIABLE: Finaliza tu respuesta en una linea separada, usando estrictamente este formato: "⚖️ Esto es orientacion general. Consulta con un abogado."`;
 
     const urlGroq = "https://api.groq.com/openai/v1/chat/completions";
@@ -266,4 +268,4 @@ app.get('/api/admin/update-embeddings', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v49.0 (Senior Lawyer Mode) activo en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v50.0 (Senior Lawyer & Forensic Guardrails) activo en puerto ${PORT}`));
