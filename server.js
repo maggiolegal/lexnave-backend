@@ -84,17 +84,20 @@ app.post('/api/consultar', async (req, res) => {
     [... REGLAS DOGMÁTICAS INVIOLABLES DE TU PROMPT ORIGINAL AQUÍ ...]
     `;
 
-    // 3. CONSTRUCCIÓN DEL PROMPT CON REFUERZO DINÁMICO
+    // 3. CONSTRUCCIÓN DEL PROMPT CON REFUERZO DE MODO DE FALLO
     const esCasoVacio = articulosFiltrados.length === 0;
-    const refuerzo = esCasoVacio 
-      ? "\n\n⚠️ ALERTA DE SISTEMA: No se recuperaron artículos de la base de datos para esta consulta. ESTÁS OBLIGADO a responder basándote ÚNICAMENTE en las 'REGLAS DOGMÁTICAS INVIOLABLES' del systemPrompt. Queda terminantemente prohibido inventar números de artículos o figuras procesales que no estén ahí. Si la respuesta no está en las reglas, admite la complejidad técnica y sugiere consultar la normativa específica en sede administrativa o judicial."
-      : "";
 
     const promptFinal = `
-    Contexto Legal Seleccionado desde Supabase: ${JSON.stringify(articulosFiltrados, null, 2)}
+    ${esCasoVacio ? `
+    [INSTRUCCIÓN CRÍTICA: La base de datos no arrojó resultados técnicos para esta consulta. 
+    ESTÁS OBLIGADO a responder utilizando tu conocimiento experto como Abogado Senior en Venezuela. 
+    NO TE LIMITES a decir que no tienes información. Aplica los principios generales del Derecho Civil, 
+    Penal o Administrativo según corresponda. Tu objetivo es orientar sobre la ruta procesal idónea 
+    basándote en tu formación jurídica experta, no en una búsqueda documental fallida.]` : 
+    `Contexto Legal Seleccionado desde Supabase: ${JSON.stringify(articulosFiltrados, null, 2)}`}
+
     Clasificación Interna: ${JSON.stringify(metadata, null, 2)}
     Consulta: "${pregunta}"
-    ${refuerzo}
     `;
 
     // 4. GENERACIÓN CON TOLERANCIA A FALLAS
