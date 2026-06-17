@@ -8,6 +8,9 @@ app.use(express.json());
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// Función de utilidad para esperar (sleep)
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (!articulosCandidatos || articulosCandidatos.length === 0) return [];
   
@@ -26,9 +29,9 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
     });
     const parsed = JSON.parse(chatCompletion.choices[0]?.message?.content);
     const ids = Array.isArray(parsed) ? parsed : (parsed.ids || []);
-    return ids.length > 0 ? articulosCandidatos.filter(art => ids.includes(art.id)) : articulosCandidatos.slice(0, 3);
+    return ids.length > 0 ? articulosCandidatos.filter(art => ids.includes(art.id)) : [];
   } catch (error) {
-    return articulosCandidatos.slice(0, 4);
+    return [];
   }
 }
 
@@ -36,46 +39,55 @@ app.post('/api/consultar', async (req, res) => {
   const { pregunta, articulosRaw } = req.body;
 
   try {
-    // Eliminada la clasificación JSON y la lógica de repregunta automática
     const articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosRaw || []);
 
     const systemPrompt = `
     Eres "LexnaVe", Abogado Senior experto en Derecho Venezolano. Tu misión es orientar con absoluta precisión técnica y pulcritud en lapsos procesales.
-    [... REGLAS DOGMÁTICAS INVIOLABLES DE TU PROMPT ORIGINAL AQUÍ ...]
+    
+    JERARQUÍA DE ACCIONES OBLIGATORIA:
+    1. Ante perturbaciones en áreas comunes o propiedad horizontal: La figura procesal correcta y expedita es el INTERDICTO DE AMPARO (Art. 782 CCV).
+    2. Si hay construcción nueva en áreas comunes sin permiso: INTERDICTO DE OBRA NUEVA (Art. 786 CCV).
+    3. PROHIBIDO sugerir "Acciones de Demolición" ordinarias para estos casos, ya que son procesos lentos e improcedentes.
+    4. Cita siempre la base legal (CCV, LPH, COPP).
     `;
 
     const esCasoVacio = articulosFiltrados.length === 0;
 
     const promptFinal = `
     ${esCasoVacio ? `
-    [INSTRUCCIÓN CRÍTICA: La base de datos no arrojó resultados técnicos para esta consulta. 
-    ESTÁS OBLIGADO a responder utilizando tu conocimiento experto como Abogado Senior en Venezuela. 
-    NO TE LIMITES a decir que no tienes información. Aplica los principios generales del Derecho Civil, 
-    Penal o Administrativo según corresponda. Tu objetivo es orientar sobre la ruta procesal idónea 
-    basándote en tu formación jurídica experta, no en una búsqueda documental fallida.]` : 
-    `Contexto Legal Seleccionado desde Supabase: ${JSON.stringify(articulosFiltrados, null, 2)}`}
+    [INSTRUCCIÓN CRÍTICA: No se encontraron artículos específicos en base de datos.
+    ESTÁS OBLIGADO a responder basándote en tu conocimiento experto como Abogado Senior en Venezuela, 
+    siguiendo estrictamente la JERARQUÍA DE ACCIONES definida en tu sistema.]` : 
+    `Contexto Legal: ${JSON.stringify(articulosFiltrados, null, 2)}`}
 
-    Consulta del usuario: "${pregunta}"
+    Consulta: "${pregunta}"
     `;
 
-    // 4. GENERACIÓN CON TOLERANCIA A FALLAS
+    // 4. GENERACIÓN CON REINTENTO (SIN DEGRADAR A 8B)
     let responseFinal;
-    try {
-      responseFinal = await groq.chat.completions.create({
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptFinal }],
-        model: 'llama-3.3-70b-versatile',
-        temperature: 0.3
-      });
-    } catch (innerError) {
-      if (innerError.status === 429) {
+    let intentos = 0;
+    const maxIntentos = 2;
+
+    while (intentos < maxIntentos) {
+      try {
         responseFinal = await groq.chat.completions.create({
           messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: promptFinal }],
-          model: 'llama-3.1-8b-instant',
-          temperature: 0.3
+          model: 'llama-3.3-70b-versatile',
+          temperature: 0.2
         });
-      } else {
-        throw innerError;
+        break; // Éxito
+      } catch (innerError) {
+        if (innerError.status === 429 && intentos < maxIntentos - 1) {
+          intentos++;
+          await sleep(5000); // Esperar 5 segundos antes de reintentar
+        } else {
+          throw innerError;
+        }
       }
+    }
+
+    if (!responseFinal) {
+      return res.status(503).json({ respuesta: "⚠️ El sistema de alta capacidad está saturado. Por favor, reintente en unos segundos." });
     }
 
     res.json({ respuesta: responseFinal.choices[0]?.message?.content });
