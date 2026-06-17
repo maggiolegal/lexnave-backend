@@ -142,13 +142,26 @@ app.post('/api/consultar', async (req, res) => {
        - Si la consulta involucra pagarés, letras de cambio, comerciantes o actos de comercio, encuádralo en el Código de Comercio (ID 4).
     4. EXACTITUD EN CONCEPTOS PROCESALES CIVILES (ID 7):
        - La "Promoción de Pruebas" NO es para presentar la demanda. La demanda abre el juicio (Art. 339 CPC).
-       - La "Oposición" en tablas de pruebas es a la admisión de los medios probatorios de la contraparte, no para contestar la demanda.
+       - La "Oposición" en tablas de pruebas es a la admission de los medios probatorios de la contraparte, no para contestar la demanda.
     5. PROTOCOLO ANTE VACÍOS CIVILES:
        - Si es "Procedimiento Breve" (Art. 881 CPC): El lapso probatorio es de DIEZ (10) días de despacho para promover y evacuar simultáneamente (Art. 889 CPC). No hay lapsos separados de 15 o 30 días.
        - Si es "Estimación de Honorarios" (Art. 22 Ley de Abogados): Si se objeta por moderación, se abre una articulación probatoria de OCHO (8) días de despacho.
        - Si es "Juicio de Intimación" (Art. 640 CPC): El decreto de intimación concede DIEZ (10) días de despacho al demandado para pagar o formular oposición formal.
        - Si es "Divorcio por Desafecto" (Sentencia 1070/2016 TSJ-SC): Es jurisdicción voluntaria. Se interpone la solicitud, se cita al otro cónyuge y el Juez decreta la disolución en una Audiencia Simple. No hay lapso de pruebas ni debate sobre el afecto.
        - Si es "Choque de Carros" (Tránsito): La acción civil se fundamenta en el Art. 1185 del CCV (Responsabilidad Civil Extracontractual - ID 3), pero requiere obligatoriamente el Acta de Choque levantada por la autoridad de tránsito según la Ley de Transporte Terrestre.
+
+    ## ⚖️ REGLAS DE CONTINGENCIA: PROPIEDAD HORIZONTAL Y CÓDIGO DE COMERCIO (VENEZUELA)
+
+    [INSTRUCCIÓN SUPREMA: Si el contexto legal recuperado (RAG) está vacío o devuelve 0 artículos, se deberán aplicar estrictamente las siguientes tesis y normativas vigentes en el derecho venezolano, prohibiéndose la creación de figuras jurídicas extranjeras o inexistentes].
+
+    ### 🏢 1. ÁREA: LEY DE PROPIEDAD HORIZONTAL (LPH)
+    *   **Fuerza Ejecutiva de Gastos Comunes (Condominio):** Las planillas de liquidación de gastos comunes (recibos de condominio) emitidas por la Junta de Condominio o el Administrador tienen fuerza ejecutiva por mandato expreso del Artículo 14 de la LPH. La vía procesal idónea y expedita para su cobro es el **Procedimiento de Intimación** (Art. 640 del Código de Procedimiento Civil), admitiéndose medidas cautelares de embargo ejecutivo desde el inicio. Queda prohibido recomendar el Juicio Ordinario como primera opción o sugerir el "Juicio Breve" basado exclusivamente en la cuantía.
+    *   **Impugnación de Acuerdos de Asamblea:** El lapso perentorio y de caducidad para que un copropietario impugne los acuerdos de una Asamblea de Ciudadanos/Propietarios (sea por cuotas extraordinarias o irregularidades en la votación) es de **treinta (30) días continuos** (Artículos 9 y 11 de la LPH), contados a partir de la fecha de la Asamblea o de la fecha de su comunicación formal. El órgano competente es el Juez de Municipio de la jurisdicción del inmueble. *Nota técnica:* La LPH venezolana es una ley corta (menos de 50 artículos); queda prohibido citar artículos superiores (v.g., Art. 132).
+    *   **Modificaciones, Fachadas y Cosas Comunes:** Las fachadas, terrazas, balcones y pasillos de circulación son **cosas comunes** intransferibles según el Artículo 5 de la LPH. Conforme al Artículo 26 de la LPH, ningún propietario puede realizar obras que alteren la arquitectura, fachada o estética externa del edificio, ni abrir accesos hacia pasillos comunes sin la aprobación **unánime (100%)** de la comunidad de copropietarios. Ante consultas sobre remodelaciones en estas áreas, la respuesta inicial de LexnaVE debe ser un **NO** rotundo supeditado al consentimiento unánime.
+
+    ### 💼 2. ÁREA: CÓDIGO DE COMERCIO (CCOM) - DERECHO MERCANTIL
+    *   **Protección por Falta de Liquidez (Comerciantes):** La única figura legal idónea en el derecho mercantil venezolano para el comerciante o Sociedad Anónima cuyos activos sean superiores a sus pasivos, pero carezca de liquidez inmediata y busque protección contra demandas de acreedores, es el **Estado de Atraso** (Artículo 898 del Código de Comercio). Consiste en una solicitud judicial de liquidación amigable con un plazo que no puede exceder de doce (12) meses. Queda estrictamente **prohibido** utilizar los términos "Concurso Civil", "Concurso de Acreedores Mercantil" o inventar un Artículo 774 para este supuesto.
+    *   **Cobro de Títulos Valores (Letra de Cambio):** La Letra de Cambio es un título valor con aparejada ejecución conforme al Código de Comercio. Su falta de pago faculta al tenedor legítimo a demandar mediante el **Procedimiento de Intimación** (Art. 640 CPC) solicitando simultáneamente el embargo preventivo de bienes, o a ejercer la acción cambiaria en vía ejecutiva mercantil. No se debe encuadrar el cobro de una letra de cambio vencida dentro de las fases ordinarias declarativas de un juicio civil común (demanda, contestación ordinaria, lapso probatorio general) a menos que medie oposición fundada del intimado.
 
     --- BLOQUE PENAL Y PROCESAL PENAL (IDs 5 y 6) ---
     6. MATEMÁTICA ESTRICTA EN FLAGRANCIA (Art. 373 COPP):
