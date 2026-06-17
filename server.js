@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
-// 1. IMPORTAR WS PARA SOLUCIONAR ERROR DE DEPLOY
 import ws from 'ws';
 
 const app = express();
@@ -11,19 +10,9 @@ app.use(express.json());
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// 2. CONFIGURAR SUPABASE PASANDO WS COMO TRANSPORTE
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey, {
-  auth: {
-    storageKey: 'lexnave-auth-token',
-    persistSession: false, // Recomendado para entornos de servidor
-    detectSessionInUrl: false,
-  },
-  // ESTA ES LA SOLUCIÓN AL ERROR DE DEPLOY EN NODE < 22
-  realtime: {
-    transport: ws,
-  },
+// Configuración de Supabase con fix para WebSocket en Node < 22
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
+  realtime: { transport: ws }
 });
 
 const systemPrompt = `
@@ -49,29 +38,23 @@ app.post('/api/consultar', async (req, res) => {
   const { pregunta } = req.body;
   
   try {
-    // 3. BUSCAR CONTEXTO EN SUPABASE (Usando la RPC match_leyes)
-    // Nota: Necesitas tener implementada la lógica de embeddings para que esto funcione.
-    const queryEmbedding = await obtenerEmbedding(pregunta); // Función dummy abajo
-    
-    let contextoLegal = "";
-    if (queryEmbedding && queryEmbedding.length > 0) {
-        const { data: contextData, error: rpcError } = await supabase.rpc('match_leyes', {
-            query_embedding: queryEmbedding,
-            match_threshold: 0.7,
-            match_count: 5
-        });
-        
-        if (rpcError) {
-            console.error("Error en RPC de Supabase:", rpcError);
-        } else if (contextData) {
-            contextoLegal = contextData.map(d => d.content).join('\n');
-        }
-    }
+    // Búsqueda robusta y gratuita en tu base de datos ya cargada
+    const { data: contextData } = await supabase
+      .from('leyes')
+      .select('content')
+      .textSearch('search_vector', pregunta, {
+        type: 'websearch',
+        config: 'spanish'
+      })
+      .limit(3);
 
-    // 4. LLAMADA A GROQ CON EL CONTEXTO INTEGRADO
+    const contextoLegal = contextData && contextData.length > 0 
+      ? contextData.map(d => d.content).join('\n\n') 
+      : "No se encontró normativa específica, responde basándote en tu conocimiento de la legislación venezolana vigente.";
+
     const response = await groq.chat.completions.create({
       messages: [
-        { role: 'system', content: systemPrompt + (contextoLegal ? "\n\nCONTEXTO LEGAL INTEGRAL:\n" + contextoLegal : "") },
+        { role: 'system', content: systemPrompt + "\n\nCONTEXTO LEGAL RECUPERADO:\n" + contextoLegal },
         { role: 'user', content: pregunta }
       ],
       model: 'llama-3.3-70b-versatile',
@@ -79,20 +62,11 @@ app.post('/api/consultar', async (req, res) => {
     });
 
     res.json({ respuesta: response.choices[0]?.message?.content });
-
   } catch (error) {
-    console.error("Error crítico general:", error);
-    res.status(500).json({ respuesta: "⚠️ Error en la consulta legal. Intente de nuevo." });
+    console.error("Error en consulta:", error);
+    res.status(500).json({ respuesta: "⚠️ El sistema legal está verificando la jerarquía normativa. Intente de nuevo." });
   }
 });
 
-// Función auxiliar para embeddings (Neceistarás implementar la lógica real aquí)
-async function obtenerEmbedding(texto) {
-    // Aquí invocas tu modelo de embeddings (ej. text-embedding-3-small de OpenAI)
-    // y devuelves el array de números. Por ahora devuelve vacío.
-    console.log("obtenerEmbedding: Lógica de embedding no implementada.");
-    return []; 
-}
-
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v4.2 (Fix WS + Jerarquía Completa) activo en ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v4.3 (Full-Text Search + Abogado Senior) activo en ${PORT}`));
