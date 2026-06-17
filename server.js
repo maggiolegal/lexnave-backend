@@ -3,6 +3,7 @@ import cors from 'cors';
 import { createClient } from '@supabase/supabase-js';
 import { pipeline, env } from '@xenova/transformers';
 import ws from 'ws'; 
+import crypto from 'crypto';
 
 env.allowLocalModels = false; 
 env.useBrowserCache = false;
@@ -41,7 +42,7 @@ async function getExtractor() {
   return extractor;
 }
 
-// 🛠️ OPTIMIZACIÓN 1: Ajustamos el prompt de clasificación para evitar alucinaciones de ley_id
+// ⚖️ CLASIFICACIÓN OPTIMIZADA (Limpia de RegExp rotas)
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const contextoHistorial = historialReciente.length > 0 
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
@@ -76,15 +77,21 @@ OUTPUT:`;
     });
     const data = await res.json();
     let content = data.choices[0].message.content.trim();
-    if (content.startsWith('```json')) content = content.replace(/
-```json|```/g, '');
+    
+    // Limpieza robusta basada en Strings literales
+    if (content.includes('```')) {
+      content = content.replaceAll('
+```json', '').replaceAll('```', '').trim();
+    }
+    
     return JSON.parse(content);
   } catch (error) { 
+    console.error("Error al parsear clasificación:", error);
     return { needs_clarification: false, ley_id: null, legal_intent: 'general', articulo_num: null, text_keywords: [] }; 
   }
 }
 
-// 🛠️ OPTIMIZACIÓN 2: Flexibilizamos el filtro supremo para evitar que borre candidatos válidos
+// 🔍 FILTRO SUPREMO FLEXIBILIZADO
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (articulosCandidatos.length === 0) return [];
   const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido.substring(0, 200)}..."`).join('\n');
@@ -107,7 +114,11 @@ OUTPUT:`;
     });
     const data = await res.json();
     let content = data.choices[0].message.content.trim();
-    content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    if (content.includes('```')) {
+      content = content.replaceAll('```json', '').replaceAll('```', '').trim();
+    }
+    
     const start = content.indexOf('[');
     const end = content.lastIndexOf(']');
     if (start !== -1 && end !== -1) {
@@ -116,7 +127,8 @@ OUTPUT:`;
     }
     return [];
   } catch (e) {
-    return articulosCandidatos.slice(0, 3); // Fallback: devolvemos los 3 primeros en lugar de 1
+    console.error("Error en el filtro supremo:", e);
+    return articulosCandidatos.slice(0, 3); // Fallback seguro
   }
 }
 
@@ -131,6 +143,7 @@ async function guardarMensaje(sessionId, role, content) {
   await supabase.from('chat_history').insert({ session_id: sessionId, role, content });
 }
 
+// 📥 ENDPOINT PRINCIPAL: CONSULTAR
 app.post('/api/consultar', verifyAuth, async (req, res) => {
   try {
     const { pregunta, sessionId: clientSessionId } = req.body;
@@ -186,7 +199,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       ? articulosFinales.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
-    // 🛠️ OPTIMIZACIÓN 3: REINGENIERÍA TOTAL DEL PROMPT FINAL PARA LEXNAVE (SENIOR LAWYER MODE)
+    // 👑 PROMPT FINAL DE LEXNAVE (Senior Lawyer Mode)
     const promptFinal = `Eres LexnaVe, una abogada litigante senior, técnica y profundamente dogmática del derecho procesal y sustantivo venezolano. Tu tono es el de un jurista experimentado de la práctica forense, combinando rigor normativo con análisis estratégico.
 
 ARTÍCULOS RECUPERADOS DE LA BASE DE DATOS:
@@ -204,10 +217,10 @@ INSTRUCCIONES CRÍTICAS DE REDACCIÓN Y CONTENIDO:
 4. DINÁMICA DE CONEXIÓN ENTRE INSTITUTOS: Explica cómo se interconectan los conceptos. Por ejemplo, vincula cómo una adecuada "fijación de los hechos" (Art. 389 CPC) purga el proceso, determinando de manera matemática qué es lo que se va a promover y evacuar en el posterior "lapso de pruebas", evitando el desgaste innecesario sobre hechos ya admitidos o pacíficos.
 5. CIERRE ÉTICO INVARIABLE: Finaliza tu respuesta en una línea separada, usando estrictamente este formato: "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
-    const groqRes = await fetch("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", {
+    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: promptFinal }], temperature: 0.15 }) // Temperatura baja para consistencia jurídica
+      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: promptFinal }], temperature: 0.15 })
     });
 
     const data = await groqRes.json();
@@ -221,6 +234,7 @@ INSTRUCCIONES CRÍTICAS DE REDACCIÓN Y CONTENIDO:
   }
 });
 
+// ⏳ ENDPOINT ADMIN: EMBEDDINGS
 app.get('/api/admin/update-embeddings', async (req, res) => {
   console.log("🚀 Iniciando lote de actualización...");
   try {
