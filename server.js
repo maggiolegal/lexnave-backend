@@ -1,15 +1,15 @@
 import express from 'express';
 import cors from 'cors';
-import { GoogleGenerativeAI } from '@google/generative-ai'; 
+import Groq from 'groq-sdk'; // Migrado al SDK oficial de Groq
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Inicialización clásica usando la variable de entorno de Render
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Inicialización de Groq leyendo tu variable de entorno en Render
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// SINOPSIS EXACTA DE TU TABLA public.leyes (Verificado en 1000058415.jpg)
+// Mapeo exacto de tu tabla public.leyes en Supabase
 const LEY_MAP = {
   1: "Constitución de la República Bolivariana de Venezuela",
   2: "Ley de Propiedad Horizontal",
@@ -22,7 +22,6 @@ const LEY_MAP = {
 
 /**
  * ROBUSTEZ TÉCNICA: Limpia y parsea JSON generados por LLMs
- * Previene el SyntaxError aislando bloques estructurales con expresiones regulares
  */
 function safeJsonParse(rawText) {
   try {
@@ -41,7 +40,7 @@ function safeJsonParse(rawText) {
 }
 
 /**
- * FILTRO SUPREMO MEJORADO (RAG Custody)
+ * FILTRO SUPREMO MEJORADO (RAG Custody adaptado a Groq)
  */
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (!articulosCandidatos || articulosCandidatos.length === 0) return [];
@@ -59,14 +58,20 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   `;
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const result = await model.generateContent(promptFiltro);
-    const response = await result.response;
-    const responseText = response.text() || "";
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [{ role: 'user', content: promptFiltro }],
+      model: 'llama-3.1-70b-versatile',
+      temperature: 0.1,
+      response_format: { type: "json_object" } // Groq fuerza JSON de forma nativa
+    });
     
-    const idsAdmitidos = safeJsonParse(responseText);
+    const responseText = chatCompletion.choices[0]?.message?.content || "";
+    const parsedResponse = safeJsonParse(responseText);
     
-    if (Array.isArray(idsAdmitidos)) {
+    // Si el modelo devuelve un objeto con un array dentro, o el array directo
+    const idsAdmitidos = Array.isArray(parsedResponse) ? parsedResponse : (parsedResponse.ids || []);
+    
+    if (idsAdmitidos.length > 0) {
       return articulosCandidatos.filter(art => idsAdmitidos.includes(art.id));
     }
     return articulosCandidatos.slice(0, 3);
@@ -102,11 +107,14 @@ app.post('/api/consultar', async (req, res) => {
     }
     `;
 
-    const modelClasificacion = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const resultClasificacion = await modelClasificacion.generateContent(promptClasificacion);
-    const responseClasificacion = await resultClasificacion.response;
+    const resClasificacion = await groq.chat.completions.create({
+      messages: [{ role: 'user', content: promptClasificacion }],
+      model: 'llama-3.1-70b-versatile',
+      temperature: 0.1,
+      response_format: { type: "json_object" }
+    });
 
-    const metadata = safeJsonParse(responseClasificacion.text());
+    const metadata = safeJsonParse(resClasificacion.choices[0]?.message?.content);
     console.log(`${timestamp} ⚖️ Clasificación Procesal Exitosa:`, JSON.stringify(metadata, null, 2));
 
     if (metadata.needs_clarification && metadata.clarification_question) {
@@ -119,7 +127,7 @@ app.post('/api/consultar', async (req, res) => {
     const articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosRaw || []);
     console.log(`${timestamp} ✅ Tras el filtro supremo quedaron ${articulosFiltrados.length} artículos.`);
 
-    // 3. CONSTRUCCIÓN DEL PROMPT DE SISTEMA DEFINITIVO (Blindaje de Lapsos y Subsunción Táctica)
+    // 3. CONSTRUCCIÓN DEL PROMPT DE SISTEMA DEFINITIVO (Blindaje Dogmático)
     const systemPrompt = `
     Eres "LexnaVe", un ultra-meticuloso Abogado Senior y Experto en Derecho Procesal Civil, Penal y Constitucional Venezolano. 
     Tu misión es orientar al ciudadano con absoluta precisión técnica, pulcritud en los lapsos procesales y un tono firme, pedagógico y profesional.
@@ -144,7 +152,7 @@ app.post('/api/consultar', async (req, res) => {
 
     ESTRUCTURA DE TU RESPUESTA:
     - Diseña secciones limpias usando encabezados markdown.
-    - Cuando presentes flujos procesales, utiliza tablas únicamente si conoces los números de días exactos vigentes en Venezuela; si el flujo procesal es de jurisdicción voluntaria o sin lapsos fijos, descríbelo en viñetas estructuradas paso a paso, nunca dejes columnas o filas en blanco.
+    - Cuando presents flujos procesales, utiliza tablas únicamente si conoces los números de días exactos vigentes en Venezuela; si el flujo procesal es de jurisdicción voluntaria o sin lapsos fijos, descríbelo en viñetas estructuradas paso a paso, nunca dejes columnas o filas en blanco.
     - Cierra siempre con la advertencia obligatoria: "⚖️ Esto es orientación general. Consulta con un abogado."
     `;
 
@@ -159,29 +167,27 @@ app.post('/api/consultar', async (req, res) => {
     "${pregunta}"
     `;
 
-    // Estructura de llamadas multi-role clásica para simular System Instructions
-    const modelFinal = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const chat = modelFinal.startChat({
-      history: [
-        { role: 'user', parts: [{ text: systemPrompt }] },
-        { role: 'model', parts: [{ text: "Entendido. Asumo el rol de LexnaVe con las reglas dogmáticas e instrucciones estructurales indicadas." }] }
-      ]
+    // 4. Generación de Respuesta Final usando la API de Groq
+    const responseFinal = await groq.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: promptFinal }
+      ],
+      model: 'llama-3.1-70b-versatile',
+      temperature: 0.3
     });
 
-    const resultFinal = await chat.sendMessage(promptFinal);
-    const responseFinal = await resultFinal.response;
-
-    res.json({ respuesta: responseFinal.text() });
+    res.json({ respuesta: responseFinal.choices[0]?.message?.content });
 
   } catch (error) {
     console.error(`❌ Error crítico en el flujo de consulta:`, error);
     res.status(500).json({ 
-      respuesta: "⚠️ Se produjo un error procesal en el servidor judicial de LexnaVe. Por favor, reintente su consulta." 
+      respuesta: "⚠️ Se produjo un error procesal en el servidor de LexnaVe. Por favor, reintente su consulta." 
     });
   }
 });
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`🚀 LexnaVe Backend activo y escuchando en el puerto ${PORT}`);
+  console.log(`🚀 LexnaVe Backend activo (Infraestructura Groq) en el puerto ${PORT}`);
 });
