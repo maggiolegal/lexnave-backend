@@ -41,23 +41,28 @@ async function getExtractor() {
   return extractor;
 }
 
+// 🛠️ OPTIMIZACIÓN 1: Ajustamos el prompt de clasificación para evitar alucinaciones de ley_id
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const contextoHistorial = historialReciente.length > 0 
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
     : '';
 
-  const prompt = `Eres un experto en derecho venezolano. Clasifica y devuelve SOLO JSON:
+  const prompt = `Eres un sistema experto en Derecho Venezolano. Tu tarea es clasificar la consulta del usuario.
+Devuelve STRICTLY un objeto JSON válido, sin textos adicionales ni bloques de código.
+
+JSON FORMAT:
 {
   "needs_clarification": boolean,
   "clarification_question": string,
-  "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT),
+  "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT, 9=LOPNNA),
   "legal_intent": string,
-  "articulo_num": (Número si se menciona, sino null),
-  "text_keywords": ["palabra_legal_1", "palabra_legal_2"]
+  "articulo_num": (Número de artículo si se menciona explícitamente, sino null),
+  "text_keywords": ["palabra_clave_1", "palabra_clave_2"]
 }
-REGLAS DE CLARIFICACIÓN ESTRICTAS:
-1. Solo preguntar si la ambigüedad es total (ej: "me deben dinero").
-2. NO preguntar si hay términos procesales claros (ej: "juicio breve", "fijación de hechos").
+
+REGLAS CRÍTICAS:
+- "Inquisición de paternidad" o "Filiación" pertenece al Código Civil (3) o LOPNNA (9). ¡NUNCA Penal o COPPP!
+- "Lapso de pruebas", "Contestación", "Fijación de hechos" pertenecen al CPC (7).
 
 ${contextoHistorial}
 PREGUNTA ACTUAL: "${preguntaColoquial}"
@@ -71,25 +76,31 @@ OUTPUT:`;
     });
     const data = await res.json();
     let content = data.choices[0].message.content.trim();
-    if (content.startsWith('```json')) content = content.replace(/```json|```/g, '');
+    if (content.startsWith('```json')) content = content.replace(/
+```json|```/g, '');
     return JSON.parse(content);
   } catch (error) { 
     return { needs_clarification: false, ley_id: null, legal_intent: 'general', articulo_num: null, text_keywords: [] }; 
   }
 }
 
+// 🛠️ OPTIMIZACIÓN 2: Flexibilizamos el filtro supremo para evitar que borre candidatos válidos
 async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (articulosCandidatos.length === 0) return [];
-  const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] ${a.leyes?.nombre} Art. ${a.numero_articulo}: "${a.contenido.substring(0, 150)}..."`).join('\n');
+  const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido.substring(0, 200)}..."`).join('\n');
   
-  const prompt = `Eres la Corte Suprema. Selecciona SOLO los artículos estrictamente aplicables a: "${pregunta}".
-  CANDIDATOS:
-  ${listaParaIA}
-  Devuelve SOLO un array JSON con los índices (ej: [1, 3]). Si ninguno sirve, [].
-  OUTPUT:`;
+  const prompt = `Actúas como un filtro de alta precisión jurídica para una base de datos de RAG.
+Analiza la pregunta del usuario: "${pregunta}"
+Evalúa los siguientes artículos candidatos y selecciona los índices (empezando en 1) de aquellos que guardan relación directa, indirecta o analógica con el tema. No seas excesivamente restrictivo.
+
+CANDIDATOS:
+${listaParaIA}
+
+Devuelve SOLO un array JSON con los índices seleccionados, por ejemplo: [1, 2]. Si absolutamente ninguno tiene relación, devuelve [].
+OUTPUT:`;
 
   try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const res = await fetch("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
       body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.0 })
@@ -105,7 +116,7 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
     }
     return [];
   } catch (e) {
-    return articulosCandidatos.slice(0, 1); 
+    return articulosCandidatos.slice(0, 3); // Fallback: devolvemos los 3 primeros en lugar de 1
   }
 }
 
@@ -148,7 +159,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       if (data && data.length > 0) articulosCandidatos = data;
     }
 
-    // 2. Búsqueda Semántica TRANSVERSAL (Aumentamos a 15 candidatos)
+    // 2. Búsqueda Semántica TRANSVERSAL
     if (articulosCandidatos.length === 0) {
       try {
         const currentExtractor = await getExtractor();
@@ -159,7 +170,7 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       } catch (e) { console.error("Error semántico:", e); }
     }
 
-    // 3. Búsqueda Textual Agresiva TRANSVERSAL (Aumentamos a 15 candidatos)
+    // 3. Búsqueda Textual Agresiva TRANSVERSAL
     if (articulosCandidatos.length === 0 && text_keywords.length > 0) {
       console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva Transversal...`);
       const orConditions = text_keywords.flatMap(k => [`contenido.ilike.%${k}%`, `contenido_enriquecido.ilike.%${k}%`]);
@@ -175,24 +186,28 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
       ? articulosFinales.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
-    // ✅ PROMPT DE ABOGADO SENIOR (Con permiso para usar conocimiento interno si es necesario)
-    const promptFinal = `Eres LexnaVe, abogada litigante venezolana experta y técnica.
+    // 🛠️ OPTIMIZACIÓN 3: REINGENIERÍA TOTAL DEL PROMPT FINAL PARA LEXNAVE (SENIOR LAWYER MODE)
+    const promptFinal = `Eres LexnaVe, una abogada litigante senior, técnica y profundamente dogmática del derecho procesal y sustantivo venezolano. Tu tono es el de un jurista experimentado de la práctica forense, combinando rigor normativo con análisis estratégico.
 
-ARTÍCULOS RECUPERADOS:
+ARTÍCULOS RECUPERADOS DE LA BASE DE DATOS:
 ${contextoArticulos}
 
-PREGUNTA: "${pregunta}"
+PREGUNTA DEL USUARIO: "${pregunta}"
 
-INSTRUCCIONES DE EXPERTO:
-1. SI HAY ARTÍCULOS: ÚSALOS COMO BASE.
-2. CONOCIMIENTO INTERNO: Si la pregunta es sobre un instituto procesal específico (ej: "fijación de hechos", "despacho saneador") y los artículos recuperados son tangenciales, COMPLEMENTA con tu conocimiento preciso del CPC (ej: cita el Art. 389 para fijación de hechos o Art. 868 para juicio oral) para dar una respuesta técnica completa.
-3. EXPLICA EL CONCEPTO: No solo cites, explica cómo funciona en la práctica forense venezolana.
-4. CIERRE ÉTICO: Termina siempre con "⚖️ Esto es orientación general. Consulta con un abogado."`;
+INSTRUCCIONES CRÍTICAS DE REDACCIÓN Y CONTENIDO:
+1. ESTRUCTURA FORENSE: No respondas con párrafos planos e improvisados. Inicia con una breve introducción conceptual que defina el instituto procesal o sustantivo consultado, explicando por qué es crucial en nuestra práctica jurídica. Organiza el desarrollo usando subtítulos claros e informativos basados en números (ej: "1. El Momento Procesal", "2. El Propósito", etc.).
+2. USO NORMATIVO Y CONOCIMIENTO INTERNO ESPECÍFICO:
+   - Apóyate decididamente en los artículos recuperados, pero recuerda que eres una experta senior: si la consulta versa sobre lapsos procesales, dinámicas probatorias, juicios específicos (como inquisición de paternidad, juicios orales o acción reivindicatoria) y los artículos de la base de datos son parciales o tangenciales, DEBES recurrir a tu vasto conocimiento interno del Código de Procedimiento Civil (CPC), Código Civil, LOPNNA o jurisprudencia del TSJ (especialmente de las Salas Constitucional y de Casación Civil).
+   - Detalla lapsos temporales exactos de forma matemática (por ejemplo, los 15 días de promoción, 3 de oposición, 3 de admisión y 30 de evacuación del procedimiento ordinario civil, haciendo mención expresa a los artículos 388, 392, 396, 397, 398 y 400 del CPC).
+   - Si hablas de lapsos, explica siempre la "Regla de Oro": cómo opera el cómputo en base a "días de despacho" según el artículo 197 del CPC.
+3. FORMATO VISUAL EXIGIDO (TABLAS MARKDOWN): Cuando la respuesta involucre fases secuenciales, plazos cronológicos estructurados o comparativas complejas (como las fases del lapso probatorio), estás OBLIGADA a diagramar una tabla en formato Markdown con columnas claras (ej: Fase | Duración / Días de Despacho | Propósito Procesal | Fundamento Legal).
+4. DINÁMICA DE CONEXIÓN ENTRE INSTITUTOS: Explica cómo se interconectan los conceptos. Por ejemplo, vincula cómo una adecuada "fijación de los hechos" (Art. 389 CPC) purga el proceso, determinando de manera matemática qué es lo que se va a promover y evacuar en el posterior "lapso de pruebas", evitando el desgaste innecesario sobre hechos ya admitidos o pacíficos.
+5. CIERRE ÉTICO INVARIABLE: Finaliza tu respuesta en una línea separada, usando estrictamente este formato: "⚖️ Esto es orientación general. Consulta con un abogado."`;
 
-    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const groqRes = await fetch("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
-      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: promptFinal }], temperature: 0.2 })
+      body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: promptFinal }], temperature: 0.15 }) // Temperatura baja para consistencia jurídica
     });
 
     const data = await groqRes.json();
