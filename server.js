@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 
 const supabase = createClient(
-  process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co",
+  process.env.SUPABASE_URL || "[https://dhcacnfuummsgpxujpjz.supabase.co](https://dhcacnfuummsgpxujpjz.supabase.co)",
   process.env.SUPABASE_KEY,
   {
     auth: { persistSession: false },
@@ -42,14 +42,27 @@ async function getExtractor() {
   return extractor;
 }
 
-// ⚖️ CLASIFICACIÓN OPTIMIZADA (Limpia de RegExp rotas)
+// Lógica de limpieza ultra-segura para blindar el JSON contra copias corruptas
+function limpiarRespuestaJson(textoSucio) {
+  let textoClaro = textoSucio.trim();
+  // Buscamos la apertura y cierre exactos del JSON
+  const posicionApertura = textoClaro.indexOf('{');
+  const posicionCierre = textoClaro.lastIndexOf('}');
+  
+  if (posicionApertura !== -1 && posicionCierre !== -1) {
+    return textoClaro.substring(posicionApertura, posicionCierre + 1);
+  }
+  return textoClaro;
+}
+
+// ⚖️ CLASIFICACIÓN OPTIMIZADA
 async function clasificarMateriaLegal(preguntaColoquial, historialReciente) {
   const contextoHistorial = historialReciente.length > 0 
     ? `CONTEXTO PREVIO:\n${historialReciente.map(h => `${h.role}: ${h.content}`).join('\n')}\n`
     : '';
 
   const prompt = `Eres un sistema experto en Derecho Venezolano. Tu tarea es clasificar la consulta del usuario.
-Devuelve STRICTLY un objeto JSON válido, sin textos adicionales ni bloques de código.
+Devuelve STRICTLY un objeto JSON valido en una sola linea, sin textos adicionales ni bloques de codigo de markdown.
 
 JSON FORMAT:
 {
@@ -57,36 +70,29 @@ JSON FORMAT:
   "clarification_question": string,
   "ley_id": (1=CRBV, 2=LPH, 3=Civil, 4=Comercio, 5=COPPP, 6=Penal, 7=CPC, 8=LOTTT, 9=LOPNNA),
   "legal_intent": string,
-  "articulo_num": (Número de artículo si se menciona explícitamente, sino null),
+  "articulo_num": (Numero de articulo si se menciona explicitamente, sino null),
   "text_keywords": ["palabra_clave_1", "palabra_clave_2"]
 }
 
-REGLAS CRÍTICAS:
-- "Inquisición de paternidad" o "Filiación" pertenece al Código Civil (3) o LOPNNA (9). ¡NUNCA Penal o COPPP!
-- "Lapso de pruebas", "Contestación", "Fijación de hechos" pertenecen al CPC (7).
+REGLAS CRITICAS:
+- Inquisicion de paternidad o Filiacion pertenece al Codigo Civil (3) o LOPNNA (9). NUNCA Penal o COPPP.
+- Lapso de pruebas, Contestacion, Fijacion de hechos pertenecen al CPC (7).
 
 ${contextoHistorial}
 PREGUNTA ACTUAL: "${preguntaColoquial}"
 OUTPUT:`;
 
   try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const res = await fetch("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
       body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: prompt }], temperature: 0.0 })
     });
     const data = await res.json();
-    let content = data.choices[0].message.content.trim();
-    
-    // Limpieza robusta basada en Strings literales
-    if (content.includes('```')) {
-      content = content.replaceAll('
-```json', '').replaceAll('```', '').trim();
-    }
-    
+    const content = limpiarRespuestaJson(data.choices[0].message.content);
     return JSON.parse(content);
   } catch (error) { 
-    console.error("Error al parsear clasificación:", error);
+    console.error("Error al parsear clasificacion:", error);
     return { needs_clarification: false, ley_id: null, legal_intent: 'general', articulo_num: null, text_keywords: [] }; 
   }
 }
@@ -96,14 +102,14 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   if (articulosCandidatos.length === 0) return [];
   const listaParaIA = articulosCandidatos.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido.substring(0, 200)}..."`).join('\n');
   
-  const prompt = `Actúas como un filtro de alta precisión jurídica para una base de datos de RAG.
+  const prompt = `Actuas como un filtro de alta precision juridica para una base de datos de RAG.
 Analiza la pregunta del usuario: "${pregunta}"
-Evalúa los siguientes artículos candidatos y selecciona los índices (empezando en 1) de aquellos que guardan relación directa, indirecta o analógica con el tema. No seas excesivamente restrictivo.
+Evalua los siguientes articulos candidatos y selecciona los indices (empezando en 1) de aquellos que guardan relacion directa, indirecta o analogica con el tema. No seas excesivamente restrictivo.
 
 CANDIDATOS:
 ${listaParaIA}
 
-Devuelve SOLO un array JSON con los índices seleccionados, por ejemplo: [1, 2]. Si absolutamente ninguno tiene relación, devuelve [].
+Devuelve SOLO un array JSON con los indices seleccionados, por ejemplo: [1, 2]. Si absolutamente ninguno tiene relacion, devuelve [].
 OUTPUT:`;
 
   try {
@@ -115,10 +121,6 @@ OUTPUT:`;
     const data = await res.json();
     let content = data.choices[0].message.content.trim();
     
-    if (content.includes('```')) {
-      content = content.replaceAll('```json', '').replaceAll('```', '').trim();
-    }
-    
     const start = content.indexOf('[');
     const end = content.lastIndexOf(']');
     if (start !== -1 && end !== -1) {
@@ -128,7 +130,7 @@ OUTPUT:`;
     return [];
   } catch (e) {
     console.error("Error en el filtro supremo:", e);
-    return articulosCandidatos.slice(0, 3); // Fallback seguro
+    return articulosCandidatos.slice(0, 3);
   }
 }
 
@@ -155,10 +157,10 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
     const historial = await obtenerMemoria(safeSessionId);
 
     const clasificacion = await clasificarMateriaLegal(pregunta, historial);
-    console.log("⚖️ Clasificación:", clasificacion);
+    console.log("⚖️ Clasificacion:", clasificacion);
 
     if (clasificacion.needs_clarification) {
-      const respuestaClarificacion = clasificacion.clarification_question || "¿Podrías especificar un poco más tu consulta legal?";
+      const respuestaClarificacion = clasificacion.clarification_question || "¿Podrias especificar un poco mas tu consulta legal?";
       await guardarMensaje(safeSessionId, 'assistant', respuestaClarificacion);
       return res.json({ respuesta: respuestaClarificacion, sessionId: safeSessionId, needs_clarification: true });
     }
@@ -180,12 +182,12 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
         const queryEmbedding = Array.from(output.data);
         const { data, error } = await supabase.rpc('match_articulos', { query_embedding: queryEmbedding, match_threshold: 0.15, match_count: 15 });
         if (!error && data && data.length > 0) articulosCandidatos = data;
-      } catch (e) { console.error("Error semántico:", e); }
+      } catch (e) { console.error("Error semantico:", e); }
     }
 
     // 3. Búsqueda Textual Agresiva TRANSVERSAL
     if (articulosCandidatos.length === 0 && text_keywords.length > 0) {
-      console.log(`⚠️ Semántica falló. Activando Búsqueda Textual Agresiva Transversal...`);
+      console.log(`⚠️ Semantica fallo. Activando Busqueda Textual Agresiva Transversal...`);
       const orConditions = text_keywords.flatMap(k => [`contenido.ilike.%${k}%`, `contenido_enriquecido.ilike.%${k}%`]);
       const { data: textData } = await supabase.from('articulos').select('*, leyes(nombre)').or(orConditions.join(',')).limit(15);
       if (textData && textData.length > 0) articulosCandidatos = textData;
@@ -193,31 +195,31 @@ app.post('/api/consultar', verifyAuth, async (req, res) => {
 
     console.log(`🔍 Filtrando ${articulosCandidatos.length} candidatos transversales con IA...`);
     const articulosFinales = await filtrarArticulosRelevantes(pregunta, articulosCandidatos);
-    console.log(`✅ Después del filtro supremo quedaron ${articulosFinales.length} artículos.`);
+    console.log(`✅ Despues del filtro supremo quedaron ${articulosFinales.length} articulos.`);
 
     const contextoArticulos = articulosFinales.length > 0
       ? articulosFinales.map((a, i) => `[${i+1}] ${a.leyes?.nombre || 'Ley'} Art. ${a.numero_articulo}: "${a.contenido}"`).join('\n\n')
       : "NO_HAY_ARTICULOS_ENCONTRADOS";
 
     // 👑 PROMPT FINAL DE LEXNAVE (Senior Lawyer Mode)
-    const promptFinal = `Eres LexnaVe, una abogada litigante senior, técnica y profundamente dogmática del derecho procesal y sustantivo venezolano. Tu tono es el de un jurista experimentado de la práctica forense, combinando rigor normativo con análisis estratégico.
+    const promptFinal = `Eres LexnaVe, una abogada litigante senior, tecnica y profundamente dogmatica del derecho procesal y sustantivo venezolano. Tu tono es el de un jurista experimentado de la practica forense, combinando rigor normativo con analisis estrategico.
 
-ARTÍCULOS RECUPERADOS DE LA BASE DE DATOS:
+ARTICULOS RECUPERADOS DE LA BASE DE DATOS:
 ${contextoArticulos}
 
 PREGUNTA DEL USUARIO: "${pregunta}"
 
-INSTRUCCIONES CRÍTICAS DE REDACCIÓN Y CONTENIDO:
-1. ESTRUCTURA FORENSE: No respondas con párrafos planos e improvisados. Inicia con una breve introducción conceptual que defina el instituto procesal o sustantivo consultado, explicando por qué es crucial en nuestra práctica jurídica. Organiza el desarrollo usando subtítulos claros e informativos basados en números (ej: "1. El Momento Procesal", "2. El Propósito", etc.).
-2. USO NORMATIVO Y CONOCIMIENTO INTERNO ESPECÍFICO:
-   - Apóyate decididamente en los artículos recuperados, pero recuerda que eres una experta senior: si la consulta versa sobre lapsos procesales, dinámicas probatorias, juicios específicos (como inquisición de paternidad, juicios orales o acción reivindicatoria) y los artículos de la base de datos son parciales o tangenciales, DEBES recurrir a tu vasto conocimiento interno del Código de Procedimiento Civil (CPC), Código Civil, LOPNNA o jurisprudencia del TSJ (especialmente de las Salas Constitucional y de Casación Civil).
-   - Detalla lapsos temporales exactos de forma matemática (por ejemplo, los 15 días de promoción, 3 de oposición, 3 de admisión y 30 de evacuación del procedimiento ordinario civil, haciendo mención expresa a los artículos 388, 392, 396, 397, 398 y 400 del CPC).
-   - Si hablas de lapsos, explica siempre la "Regla de Oro": cómo opera el cómputo en base a "días de despacho" según el artículo 197 del CPC.
-3. FORMATO VISUAL EXIGIDO (TABLAS MARKDOWN): Cuando la respuesta involucre fases secuenciales, plazos cronológicos estructurados o comparativas complejas (como las fases del lapso probatorio), estás OBLIGADA a diagramar una tabla en formato Markdown con columnas claras (ej: Fase | Duración / Días de Despacho | Propósito Procesal | Fundamento Legal).
-4. DINÁMICA DE CONEXIÓN ENTRE INSTITUTOS: Explica cómo se interconectan los conceptos. Por ejemplo, vincula cómo una adecuada "fijación de los hechos" (Art. 389 CPC) purga el proceso, determinando de manera matemática qué es lo que se va a promover y evacuar en el posterior "lapso de pruebas", evitando el desgaste innecesario sobre hechos ya admitidos o pacíficos.
-5. CIERRE ÉTICO INVARIABLE: Finaliza tu respuesta en una línea separada, usando estrictamente este formato: "⚖️ Esto es orientación general. Consulta con un abogado."`;
+INSTRUCCIONES CRITICAS DE REDACCION Y CONTENIDO:
+1. ESTRUCTURA FORENSE: No respondas con parrafos planos e improvisados. Inicia con una breve introduccion conceptual que defina el instituto procesal o sustantivo consultado, explicando por que es crucial en nuestra practica juridica. Organiza el desarrollo usando subtitulos claros e informativos basados en numeros (ej: "1. El Momento Procesal", "2. El Proposito", etc.).
+2. USO NORMATIVO Y CONOCIMIENTO INTERNO ESPECIFICO:
+   - Apoyate decididamente en los articulos recuperados, pero recuerda que eres una experta senior: si la consulta versa sobre lapsos procesales, dinamicas probatorias, juicios especificos (como inquisicion de paternidad, juicios orales o accion reivindicatoria) y los articulos de la base de datos son parciales o tangenciales, DEBES recurrir a tu vasto conocimiento interno del Codigo de Procedimiento Civil (CPC), Codigo Civil, LOPNNA o jurisprudencia del TSJ (especialmente de las Salas Constitucional y de Casacion Civil).
+   - Detalla lapsos temporales exactos de forma matematica (por ejemplo, los 15 dias de promoc, 3 de oposicion, 3 de admision y 30 de evacuacion del procedimiento ordinario civil, haciendo mencion expresa a los articulos 388, 392, 396, 397, 398 y 400 del CPC).
+   - Si hablas de lapsos, explica siempre la "Regla de Oro": como opera el computo en base a "dias de despacho" de conformidad con el articulo 197 del CPC.
+3. FORMATO VISUAL EXIGIDO (TABLAS MARKDOWN): Cuando la respuesta involucre fases secuenciales, plazos cronologicos estructurados o comparativas complejas (como las fases del lapso probatorio), estas OBLIGADA a diagramar una tabla en formato Markdown con columnas claras (ej: Fase | Duracion / Dias de Despacho | Proposito Procesal | Fundamento Legal).
+4. DINAMICA DE CONEXION ENTRE INSTITUTOS: Explica como se interconectan los conceptos. Por ejemplo, vincula como una adecuada "fijacion de los hechos" (Art. 389 CPC) purga el proceso, determinando de manera matematica que es lo que se va a promover y evacuar en el posterior "lapso de pruebas", evitando el desgaste innecesario sobre hechos ya admitidos o pacificos.
+5. CIERRE ETICO INVARIABLE: Finaliza tu respuesta en una linea separada, usando estrictamente este formato: "⚖️ Esto es orientacion general. Consulta con un abogado."`;
 
-    const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const groqRes = await fetch("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.GROQ_API_KEY}` },
       body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: promptFinal }], temperature: 0.15 })
@@ -230,17 +232,17 @@ INSTRUCCIONES CRÍTICAS DE REDACCIÓN Y CONTENIDO:
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ respuesta: "Error técnico." });
+    res.status(500).json({ respuesta: "Error tecnico." });
   }
 });
 
 // ⏳ ENDPOINT ADMIN: EMBEDDINGS
 app.get('/api/admin/update-embeddings', async (req, res) => {
-  console.log("🚀 Iniciando lote de actualización...");
+  console.log("🚀 Iniciando lote de actualizacion...");
   try {
     const { data: articulos, error } = await supabase.from('articulos').select('id, contenido_enriquecido').not('contenido_enriquecido', 'is', null).is('embedding', null).limit(50);
     if (error) return res.status(500).json({ error: error.message });
-    if (!articulos || articulos.length === 0) return res.json({ msg: "✅ ¡TODO LISTO! No quedan artículos sin vector." });
+    if (!articulos || articulos.length === 0) return res.json({ msg: "✅ ¡TODO LISTO! No quedan articulos sin vector." });
 
     const currentExtractor = await getExtractor();
     let countActualizados = 0;
