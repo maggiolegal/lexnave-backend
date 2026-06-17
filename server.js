@@ -60,7 +60,7 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   try {
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: promptFiltro }],
-      model: 'llama-3.1-70b-versatile',
+      model: 'llama-3.3-70b-versatile', // <--- ACTUALIZADO A MODELO VIGENTE
       temperature: 0.1,
       response_format: { type: "json_object" } // Groq fuerza JSON de forma nativa
     });
@@ -109,7 +109,7 @@ app.post('/api/consultar', async (req, res) => {
 
     const resClasificacion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: promptClasificacion }],
-      model: 'llama-3.1-70b-versatile',
+      model: 'llama-3.3-70b-versatile', // <--- ACTUALIZADO A MODELO VIGENTE
       temperature: 0.1,
       response_format: { type: "json_object" }
     });
@@ -173,7 +173,7 @@ app.post('/api/consultar', async (req, res) => {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: promptFinal }
       ],
-      model: 'llama-3.1-70b-versatile',
+      model: 'llama-3.3-70b-versatile', // <--- ACTUALIZADO A MODELO VIGENTE
       temperature: 0.3
     });
 
