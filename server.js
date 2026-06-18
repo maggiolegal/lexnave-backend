@@ -51,10 +51,10 @@ const KEYWORD_LEY_MAP = {
     'mi vivienda': 2,
     'propietario': 2,
     'propietarios': 2,
-    'condominio': 2,
-    'edificio': 2,
     'copropietario': 2,
     'copropietarios': 2,
+    'cosas comunes': 2,
+    'gastos comunes': 2,
     
     // Código Civil (Ley 3)
     'contrato': 3,
@@ -69,6 +69,7 @@ const KEYWORD_LEY_MAP = {
     'herencia': 3,
     'testamento': 3,
     'sucesión': 3,
+    'vías de hecho': 3,
     
     // Código de Comercio (Ley 4)
     'pagare': 4,
@@ -165,40 +166,23 @@ async function verificarCitasEnRespuesta(respuesta, articulosContexto) {
         return false;
     }
     
-    const idsContexto = articulosContexto.map(a => parseInt(a.numero_articulo));
+    // Extraer números de artículos del contexto (pueden ser string con "Artículo X")
+    const idsContexto = [];
+    for (const art of articulosContexto) {
+        const num = art.numero_articulo.toString().replace(/\D/g, '');
+        if (num) idsContexto.push(parseInt(num));
+    }
+    
     const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
     
     if (invalidos.length > 0) {
         console.log(`⚠️ Artículos alucinados detectados: ${invalidos.join(', ')}`);
+        console.log(`📚 Artículos disponibles: ${idsContexto.join(', ')}`);
         return false;
     }
     
     console.log(`✅ Todos los artículos citados (${articulosMencionados.join(', ')}) existen en el contexto`);
     return true;
-}
-
-// ========== VALIDACIÓN DE EXISTENCIA DE ARTÍCULOS ==========
-async function validarArticuloExiste(leyId, numArticulo) {
-    try {
-        const { data, error } = await supabase
-            .from('articulos')
-            .select('id, contenido, numero_articulo')
-            .eq('ley_id', parseInt(leyId))
-            .eq('numero_articulo', numArticulo.toString().trim())
-            .maybeSingle();
-        
-        if (error || !data) {
-            return { existe: false, contenido: null, numero: null };
-        }
-        return { 
-            existe: true, 
-            contenido: data.contenido,
-            numero: data.numero_articulo
-        };
-    } catch (e) {
-        console.error("Error validando artículo:", e);
-        return { existe: false, contenido: null, numero: null };
-    }
 }
 
 // ========== FUNCIONES DE BÚSQUEDA EN SUPABASE ==========
@@ -230,7 +214,7 @@ async function buscarArticuloEspecifico(leyId, numArticulo) {
     }
 }
 
-async function obtenerArticulosPorLey(leyId, limite = 8) {
+async function obtenerArticulosPorLey(leyId, limite = 10) {
     try {
         const { data, error } = await supabase
             .from('articulos')
@@ -346,7 +330,6 @@ app.post('/api/consultar', async (req, res) => {
         let leyesForzadas = [];
         const palabrasEnPregunta = pregunta.toLowerCase();
         
-        // Recorrer todas las palabras clave y forzar las leyes correspondientes
         for (const [keyword, leyId] of Object.entries(KEYWORD_LEY_MAP)) {
             if (palabrasEnPregunta.includes(keyword.toLowerCase())) {
                 if (!leyesForzadas.includes(leyId)) {
@@ -356,11 +339,9 @@ app.post('/api/consultar', async (req, res) => {
             }
         }
         
-        // Si se forzaron leyes, reemplazar ley_ids con las forzadas
         if (leyesForzadas.length > 0) {
             // Priorizar Propiedad Horizontal (2) sobre Arrendamiento (8)
             if (leyesForzadas.includes(2) && leyesForzadas.includes(8)) {
-                // Eliminar Arrendamiento (8) si Propiedad Horizontal (2) está presente
                 leyesForzadas = leyesForzadas.filter(id => id !== 8);
                 console.log(`⚖️ Priorizando Propiedad Horizontal (2) sobre Arrendamiento (8)`);
             }
@@ -372,7 +353,6 @@ app.post('/api/consultar', async (req, res) => {
         let articulosCandidatos = [];
         const leyesAUsar = metadata.ley_ids || [];
         
-        // A. BÚSQUEDA ESPECÍFICA (Prioridad Alta)
         const leyPrincipal = leyesAUsar.length > 0 ? leyesAUsar[0] : null;
         
         if (metadata.articulo_num && leyPrincipal) {
@@ -383,7 +363,6 @@ app.post('/api/consultar', async (req, res) => {
             }
         }
 
-        // B. BÚSQUEDA GENERAL (si no se encontró artículo específico)
         if (articulosCandidatos.length === 0 && leyesAUsar.length > 0) {
             console.log(`🔍 Buscando contexto en leyes: ${leyesAUsar.join(', ')}`);
             
@@ -392,7 +371,6 @@ app.post('/api/consultar', async (req, res) => {
             articulosCandidatos = resultados.flat().slice(0, 25);
         }
 
-        // Si no se encontraron artículos, responder con mensaje
         if (articulosCandidatos.length === 0) {
             return res.json({
                 respuesta: "⚠️ No tengo información suficiente en mi base de datos para responder esta consulta con precisión. Te recomiendo consultar con un abogado especializado."
@@ -403,58 +381,77 @@ app.post('/api/consultar', async (req, res) => {
         const articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosCandidatos);
         console.log(`${timestamp} ✅ Artículos filtrados: ${articulosFiltrados.length}`);
 
-        // 5. SYSTEM PROMPT DEFINITIVO CON ANTI-ALUCINACIÓN
+        // 5. SYSTEM PROMPT DEFINITIVO CON REGLAS ESTRICTAS DE CITACIÓN
         const systemPrompt = `
-        Eres "LexnaVe", un Abogado Senior y Experto en Derecho Procesal Civil, Penal y Constitucional Venezolano con 20 años de experiencia.
+Eres "LexnaVe", un Abogado Senior y Experto en Derecho Procesal Civil, Penal y Constitucional Venezolano con 20 años de experiencia.
 
-        ⚠️ **REGLA DE ORO - PROHIBICIÓN ABSOLUTA DE ALUCINACIÓN:**
+⚠️ **INSTRUCCIONES CRÍTICAS - CITACIÓN OBLIGATORIA:**
 
-        1. **SOLO PUEDES CITAR** artículos que aparezcan EXPLÍCITAMENTE en el "CONTEXTO LEGAL DISPONIBLE" que se te proporciona.
-        2. **SI UN ARTÍCULO NO ESTÁ EN EL CONTEXTO**, no lo menciones bajo ninguna circunstancia.
-        3. **SI EL USUARIO ES PROPIETARIO** (dice "mi apartamento", "mi vivienda"), NO uses leyes de arrendamiento. Usa Propiedad Horizontal y Código Civil.
-        4. **SI NO ENCUENTRAS INFORMACIÓN SUFICIENTE**, responde textualmente: 
-           "No tengo información suficiente en mi base de datos para responder esta consulta con precisión. Te recomiendo consultar con un abogado especializado."
+**CADA afirmación DEBE ir acompañada de:**
+1. El número del artículo
+2. El nombre de la ley
+3. El texto LITERAL entre comillas
 
-        **ESTRUCTURA OBLIGATORIA DE RESPUESTA:**
+**EJEMPLO DE CITACIÓN CORRECTA:**
+"Según el Artículo 5 de la Ley de Propiedad Horizontal: 'Son cosas comunes a todos los apartamentos, las que son necesarias para su existencia, seguridad y conservación...'"
 
-        1. **INTRODUCCIÓN**: Resumen ejecutivo de 2-3 líneas que responda directamente la consulta.
-        2. **FUNDAMENTOS LEGALES** (SOLO artículos del contexto):
-           - "Según el Artículo X de la Ley Y: [texto LITERAL del contexto]"
-           - "Este artículo aplica porque [explicación breve]"
-        3. **ACCIONES RECOMENDADAS**: Lista numerada de pasos prácticos que puede tomar el ciudadano.
-        4. **ADVERTENCIA FINAL**: "⚖️ Esto es orientación general. Consulta con un abogado."
+**PROHIBIDO:**
+- Citar artículos sin su texto literal
+- Mencionar artículos que no estén en el contexto
+- Usar frases como "Aunque no hay un artículo explícito..."
+- Inventar contenidos de artículos
 
-        **REGLAS DOGMÁTICAS INVIOLABLES:**
+**REGLAS DOGMÁTICAS INVIOLABLES:**
 
-        --- BLOQUE CIVIL Y CONSTITUCIONAL ---
-        - **Propiedad Horizontal (Ley 2)**: Problemas de vecinos, condominio, cuotas de mantenimiento, acceso a vivienda.
-        - **Código Civil (Ley 3)**: Contratos, responsabilidad civil, propiedad, posesión, prohibición de vías de hecho.
-        - **Art. 115 CRBV**: "Se garantiza el derecho de propiedad. Toda persona tiene derecho al uso, goce, disfrute y disposición de sus bienes."
-        - **Art. 548 CCV**: "Nadie puede hacerse justicia por sí mismo."
-        - **Art. 14 LPH**: Cobro ejecutivo de cuotas de mantenimiento.
-        - **Art. 5 LPH**: Obligación de contribuir con gastos comunes.
+--- BLOQUE CIVIL Y CONSTITUCIONAL ---
+- **Propiedad Horizontal (Ley 2)**: Problemas de vecinos, condominio, cuotas de mantenimiento, acceso a vivienda.
+  - Art. 5: Cosas comunes
+  - Art. 7: Cuota de participación
+  - Art. 8: Uso de cosas comunes
+  - Art. 9: Mejoras de cosas comunes
+  - Art. 14: Cobro ejecutivo de cuotas
 
-        --- BLOQUE PENAL ---
-        - **Flagrancia (Art. 373 COPP)**: 12h policía + 48h fiscal = 60h máximo.
-        - **Acto conclusivo (Art. 295 COPP)**: 6 meses desde imputación.
-        - **Acción Privada (Arts. 25 y 391 COPP)**: Difamación, injuria → ACUSACIÓN PRIVADA (NO Fiscalía).
+- **Código Civil (Ley 3)**:
+  - Art. 548: "Nadie puede hacerse justicia por sí mismo."
 
-        **EJEMPLO DE RESPUESTA CORRECTA:**
-        "En Venezuela, la prohibición de acceso a tu apartamento es ilegal. La Ley de Propiedad Horizontal no autoriza a los vecinos a tomar justicia por su propia mano.
+- **Constitución (Ley 1)**:
+  - Art. 115: "Se garantiza el derecho de propiedad. Toda persona tiene derecho al uso, goce, disfrute y disposición de sus bienes."
 
-        1. **Derecho de Propiedad (Art. 115 CRBV)**: 'Se garantiza el derecho de propiedad. Toda persona tiene derecho al uso, goce y disfrute de sus bienes.'
+--- BLOQUE PENAL ---
+- **Flagrancia (Art. 373 COPP)**: 12h policía + 48h fiscal = 60h máximo.
+- **Acto conclusivo (Art. 295 COPP)**: 6 meses desde imputación.
+- **Acción Privada (Arts. 25 y 391 COPP)**: Difamación, injuria → ACUSACIÓN PRIVADA (NO Fiscalía).
 
-        2. **Prohibición de Vías de Hecho (Art. 548 CCV)**: 'Nadie puede hacerse justicia por sí mismo.' Tu vecino debe seguir el procedimiento legal establecido en el Art. 14 de la LPH para cobrar deudas.
+**ESTRUCTURA OBLIGATORIA DE RESPUESTA:**
 
-        **ACCIONES RECOMENDADAS:**
-        1. Envía una carta formal exigiendo el restablecimiento del acceso.
-        2. Interpone acción de amparo constitucional.
-        3. Denuncia ante el Ministerio Público por coacción.
+1. **INTRODUCCIÓN**: Resumen ejecutivo de 2-3 líneas que responda directamente la consulta.
 
-        ⚖️ Esto es orientación general. Consulta con un abogado."
-        `;
+2. **FUNDAMENTOS LEGALES** (SOLO artículos del contexto):
+   - "Según el Artículo X de la Ley Y: [texto LITERAL entre comillas]"
+   - "Este artículo aplica porque [explicación breve]"
 
-        // Construir contexto legal con citas literales
+3. **ACCIONES RECOMENDADAS**: Lista numerada de pasos prácticos que puede tomar el ciudadano.
+
+4. **ADVERTENCIA FINAL**: "⚖️ Esto es orientación general. Consulta con un abogado."
+
+**EJEMPLO DE RESPUESTA CORRECTA:**
+"En Venezuela, la prohibición de acceso a tu apartamento es ilegal. La Ley de Propiedad Horizontal no autoriza a los vecinos a tomar justicia por su propia mano.
+
+1. **Derecho de Propiedad (Art. 115 CRBV)**: 'Se garantiza el derecho de propiedad. Toda persona tiene derecho al uso, goce y disfrute de sus bienes.' El bloqueo de acceso vulnera directamente este derecho constitucional.
+
+2. **Prohibición de Vías de Hecho (Art. 548 CCV)**: 'Nadie puede hacerse justicia por sí mismo.' Tu vecino debe seguir el procedimiento legal establecido en el Art. 14 de la LPH para cobrar deudas, no restringir el acceso.
+
+3. **Cobro Ejecutivo (Art. 14 LPH)**: 'Las contribuciones para cubrir los gastos podrán ser exigidas por el administrador...' Las cuotas se cobran por vía ejecutiva, no mediante vías de hecho.
+
+**ACCIONES RECOMENDADAS:**
+1. Envía una carta formal exigiendo el restablecimiento del acceso.
+2. Interpone acción de amparo constitucional.
+3. Denuncia ante el Ministerio Público por coacción.
+
+⚖️ Esto es orientación general. Consulta con un abogado."
+`;
+
+        // Construir contexto legal
         let contextoLegal = "";
         if (articulosFiltrados.length > 0) {
             contextoLegal = articulosFiltrados.map(art => 
@@ -465,19 +462,21 @@ app.post('/api/consultar', async (req, res) => {
         }
 
         const promptFinal = `
-        **CONTEXTO LEGAL DISPONIBLE:**
-        ${contextoLegal}
+**CONTEXTO LEGAL DISPONIBLE:**
+${contextoLegal}
 
-        **CLASIFICACIÓN DEL CASO:**
-        ${JSON.stringify(metadata, null, 2)}
+**CLASIFICACIÓN DEL CASO:**
+${JSON.stringify(metadata, null, 2)}
 
-        **CONSULTA DEL USUARIO:**
-        "${pregunta}"
+**CONSULTA DEL USUARIO:**
+"${pregunta}"
 
-        **INSTRUCCIÓN IMPORTANTE:** 
-        Basándote ÚNICAMENTE en el contexto legal proporcionado, genera una respuesta siguiendo ESTRICTAMENTE la estructura del ejemplo. 
-        Si el contexto no contiene información suficiente, responde: "No tengo información suficiente en mi base de datos para responder esta consulta con precisión. Te recomiendo consultar con un abogado especializado."
-        `;
+**INSTRUCCIÓN IMPORTANTE:** 
+Basándote ÚNICAMENTE en el contexto legal proporcionado, genera una respuesta siguiendo ESTRICTAMENTE la estructura del ejemplo.
+NO inventes artículos que no estén en el contexto.
+NO uses frases como "Aunque no hay un artículo explícito...".
+CADA afirmación debe tener su correspondiente cita legal con texto literal.
+`;
 
         // 6. GENERACIÓN DE RESPUESTA FINAL
         const responseFinal = await groq.chat.completions.create({
@@ -487,7 +486,7 @@ app.post('/api/consultar', async (req, res) => {
             ],
             model: 'llama-3.3-70b-versatile',
             temperature: 0.2,
-            max_tokens: 2500
+            max_tokens: 3000
         });
 
         let respuesta = responseFinal.choices[0]?.message?.content;
