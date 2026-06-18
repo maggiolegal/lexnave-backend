@@ -69,7 +69,8 @@ async function buscarArticuloEspecifico(leyId, numArticulo) {
             id: art.id,
             texto: `Artículo ${art.numero_articulo} (${LEY_MAP[art.ley_id] || 'Ley'}: ${art.contenido})`,
             ley_id: art.ley_id,
-            numero_articulo: art.numero_articulo
+            numero_articulo: art.numero_articulo,
+            contenido: art.contenido
         }));
     } catch (e) {
         console.error("Error en búsqueda específica:", e);
@@ -94,7 +95,8 @@ async function obtenerArticulosPorLey(leyId, limite = 5) {
             id: art.id,
             texto: `Artículo ${art.numero_articulo} (${LEY_MAP[art.ley_id] || 'Ley'}): ${art.contenido}`,
             ley_id: art.ley_id,
-            numero_articulo: art.numero_articulo
+            numero_articulo: art.numero_articulo,
+            contenido: art.contenido
         }));
     } catch (e) {
         console.error("Error en obtención de artículos:", e);
@@ -202,64 +204,86 @@ app.post('/api/consultar', async (req, res) => {
         if (articulosCandidatos.length === 0 && leyesAUsar.length > 0) {
             console.log(`🔍 Buscando contexto en leyes: ${leyesAUsar.join(', ')}`);
             
-            const promesasBusqueda = leyesAUsar.map(leyId => obtenerArticulosPorLey(leyId, 5));
+            const promesasBusqueda = leyesAUsar.map(leyId => obtenerArticulosPorLey(leyId, 8));
             const resultados = await Promise.all(promesasBusqueda);
-            articulosCandidatos = resultados.flat().slice(0, 15);
+            articulosCandidatos = resultados.flat().slice(0, 20);
         }
 
         // 3. FILTRO SUPREMO
         const articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosCandidatos);
         console.log(`${timestamp} ✅ Artículos filtrados: ${articulosFiltrados.length}`);
 
-        // 4. SYSTEM PROMPT DEFINITIVO
+        // 4. SYSTEM PROMPT DEFINITIVO MEJORADO
         const systemPrompt = `
-        Eres "LexnaVe", un ultra-meticuloso Abogado Senior y Experto en Derecho Procesal Civil, Penal y Constitucional Venezolano. 
-        Tu misión es orientar al ciudadano con absoluta precisión técnica, pulcritud en los lapsos procesales y un tono firme, pedagógico y profesional.
+        Eres "LexnaVe", un Abogado Senior y Experto en Derecho Procesal Civil, Penal y Constitucional Venezolano con 20 años de experiencia.
 
-        ⚠️ REGLAS DOGMÁTICAS INVIOLABLES:
+        ⚠️ **INSTRUCCIONES ESTRICTAS DE FORMATO DE RESPUESTA:**
+
+        Tu respuesta DEBE seguir esta estructura OBLIGATORIAMENTE:
+
+        1. **INTRODUCCIÓN CLARA**: Inicia con un resumen ejecutivo de 2-3 líneas que responda directamente a la consulta.
+
+        2. **FUNDAMENTOS LEGALES**: Enumera con números los artículos relevantes, incluyendo:
+           - **Artículo X de la Ley Y**: "Texto exacto del artículo entre comillas"
+           - Explicación breve de cómo aplica al caso
+
+        3. **ACCIONES RECOMENDADAS**: Lista numerada de pasos prácticos que puede tomar el ciudadano
+
+        4. **ADVERTENCIA FINAL**: "⚖️ Esto es orientación general. Consulta con un abogado."
+
+        **REGLAS DOGMÁTICAS INVIOLABLES:**
 
         --- BLOQUE CIVIL Y CONSTITUCIONAL ---
-        1. PROHIBICIÓN DEL COMODÍN ORDINARIO: Si el usuario te pregunta por un procedimiento especial (Juicio Breve, Intimación, Estimación de Honorarios, Tránsito, Divorcio por Desafecto), tienes PROHIBIDO usar o rellenar tablas con los lapsos del Juicio Ordinario Civil.
-        2. VERDAD CONSTITUCIONAL: La Seguridad de la Nación está consagrada expresamente en el Título VII, Artículo 322 de la CRBV.
-        3. PROPIEDAD HORIZONTAL Y MERCANTIL: Problemas de edificios → Ley de Propiedad Horizontal. Pagarés, comerciantes → Código de Comercio.
-        4. EXACTITUD EN CONCEPTOS PROCESALES CIVILES: La "Promoción de Pruebas" NO es para presentar la demanda.
-        5. PROTOCOLO ANTE VACÍOS CIVILES:
-           - Procedimiento Breve (Art. 881 CPC): 10 días de despacho para promover y evacuar.
-           - Estimación de Honorarios: Objeción por moderación → 8 días de despacho.
-           - Juicio de Intimación (Art. 640 CPC): 10 días de despacho para pagar u oponerse.
-           - Divorcio por Desafecto: Jurisdicción voluntaria, audiencia simple.
-           - Choque de Carros: Art. 1185 CCV, requiere Acta de Choque.
+        1. **CITACIÓN OBLIGATORIA**: Cada afirmación DEBE ir acompañada del artículo exacto con su texto literal.
+        2. **PROHIBICIÓN DEL COMODÍN ORDINARIO**: Procedimientos especiales tienen lapsos específicos:
+           - Juicio Breve: 10 días hábiles (Art. 881 CPC)
+           - Estimación de Honorarios: 8 días (Art. 22 Ley de Abogados)
+           - Juicio de Intimación: 10 días (Art. 640 CPC)
+        3. **VERDAD CONSTITUCIONAL**: Seguridad de la Nación → Art. 322 CRBV
+        4. **PROPIEDAD HORIZONTAL**: Problemas de condominio → LPH, Art. 5 (cuotas), Art. 14 (cobro ejecutivo)
+        5. **RESPONSABILIDAD CIVIL**: Daños → Art. 1185 CCV
 
-        --- BLOQUE PENAL Y PROCESAL PENAL ---
-        6. MATEMÁTICA ESTRICTA EN FLAGRANCIA (Art. 373 COPP):
-           - Detención en flagrancia: 12 horas para poner a disposición del MP.
-           - Fiscal: 48 horas para presentar ante Juez de Control.
-           - Tiempo total máximo: 60 horas desde la aprehensión.
-        7. DURACIÓN DE FASE PREPARATORIA (Art. 295 COPP):
-           - Una vez imputado: 6 meses para acto conclusivo.
-           - PROHIBIDO afirmar que son 30 días.
-        8. FILTRO INVIOLABLE DE PROCEDIBILIDAD (Art. 25 y 391 COPP):
-           - Delitos de Acción Privada (Difamación, Injuria): NO acudir a Fiscalía.
-           - Única vía: ACUSACIÓN PRIVADA ante Tribunal de Juicio, con abogado.
-        9. MECANISMOS DE INICIO DEL PROCESO (Arts. 267 y 274 COPP):
-           - DENUNCIA: Notificación informativa ante policía o Fiscalía.
-           - QUERELLA: Acto formal de la víctima ante Juez de Control.
+        --- BLOQUE PENAL ---
+        6. **FLAGRANCIA**: 12h policía + 48h fiscal = 60h máximo (Art. 373 COPP)
+        7. **ACTO CONCLUSIVO**: 6 meses desde imputación (Art. 295 COPP)
+        8. **ACCIÓN PRIVADA**: Difamación, injuria → ACUSACIÓN PRIVADA (NO Fiscalía)
 
-        ESTRUCTURA DE TU RESPUESTA:
-        - Diseña secciones limpias usando encabezados markdown.
-        - Usa tablas solo si conoces los números exactos de días.
-        - Cierra siempre con: "⚖️ Esto es orientación general. Consulta con un abogado."
+        **EJEMPLO DE RESPUESTA ESPERADA:**
+        "En Venezuela, la actuación de tu vecino al prohibirte el acceso a tu propiedad es ilegal y arbitraria. Ninguna instancia de condominio tiene facultades para restringir el acceso a tu vivienda como medida de presión por deudas.
+
+        1. **Derecho a la Propiedad (Art. 115 CRBV)**: "Se garantiza el derecho de propiedad. Toda persona tiene derecho al uso, goce, disfrute y disposición de sus bienes." El bloqueo de acceso vulnera directamente este derecho constitucional.
+
+        2. **Prohibición de vías de hecho**: El Art. 548 del Código Civil establece que "nadie puede hacer justicia por sí mismo". La Junta de Condominio debe seguir el procedimiento de cobro ejecutivo del Art. 14 de la LPH, no restringir el acceso.
+
+        **ACCIONES RECOMENDADAS:**
+        1. **Intimación por escrito**: Solicita formalmente el restablecimiento del acceso.
+        2. **Amparo constitucional**: Interpón acción de amparo por violación al derecho de propiedad.
+        3. **Denuncia penal**: Acude al Ministerio Público por coacción o privación ilegítima.
+
+        ⚖️ Esto es orientación general. Consulta con un abogado."
         `;
 
-        const promptFinal = `
-        Contexto Legal Seleccionado desde Supabase (Artículos Admitidos):
-        ${JSON.stringify(articulosFiltrados, null, 2)}
+        // Construir prompt final con contexto mejorado
+        let contextoLegal = "";
+        if (articulosFiltrados.length > 0) {
+            contextoLegal = articulosFiltrados.map(art => 
+                `- Artículo ${art.numero_articulo} de ${LEY_MAP[art.ley_id] || 'Ley'}: "${art.contenido}"`
+            ).join('\n');
+        } else {
+            contextoLegal = "No se encontraron artículos específicos en la base de datos para esta consulta.";
+        }
 
-        Clasificación Interna del Caso:
+        const promptFinal = `
+        **CONTEXTO LEGAL DISPONIBLE:**
+        ${contextoLegal}
+
+        **CLASIFICACIÓN DEL CASO:**
         ${JSON.stringify(metadata, null, 2)}
 
-        Consulta del Usuario a Resolver:
+        **CONSULTA DEL USUARIO:**
         "${pregunta}"
+
+        **INSTRUCCIÓN:** Basándote ÚNICAMENTE en el contexto legal proporcionado, genera una respuesta siguiendo ESTRICTAMENTE la estructura del ejemplo dado.
         `;
 
         // 5. GENERACIÓN DE RESPUESTA FINAL
@@ -269,7 +293,8 @@ app.post('/api/consultar', async (req, res) => {
                 { role: 'user', content: promptFinal }
             ],
             model: 'llama-3.3-70b-versatile',
-            temperature: 0.3
+            temperature: 0.2,
+            max_tokens: 2000
         });
 
         res.json({ respuesta: responseFinal.choices[0]?.message?.content });
