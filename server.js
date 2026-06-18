@@ -112,8 +112,7 @@ app.post('/api/consultar', async (req, res) => {
         // 3. Generación de Respuesta (System Prompt)
         // ... (Tu código actual de Groq sigue aquí usando el articulosFiltrados ya lleno)
         // 3. Prompt Final con instrucción estricta de citación
-        const systemPrompt = `Eres LexnaVe, experta en leyes venezolanas.
-        const systemPrompt = `Eres LexnaVe, asistente jurídico experto en legislación venezolana. Tu propósito es proporcionar orientación legal basada exclusivamente en la normativa suministrada.
+            const systemPrompt = `Eres LexnaVe, asistente jurídico experto en legislación venezolana. Tu propósito es proporcionar orientación legal basada exclusivamente en la normativa suministrada.
 
 REGLAS DE ORO (INVIOLABLES):
 
