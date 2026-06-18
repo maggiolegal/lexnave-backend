@@ -1,15 +1,21 @@
 import express from 'express';
 import cors from 'cors';
 import Groq from 'groq-sdk';
+import { createClient } from '@supabase/supabase-js';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Inicialización de Groq
+// ========== CONFIGURACIÓN ==========
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Mapeo de leyes
+const supabase = createClient(
+    process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co",
+    process.env.SUPABASE_KEY || "sb_publishable_pIYUap3GDuL7xqwP0CCCWA_WrUPp1aN"
+);
+
+// ========== MAPEO DE LEYES ==========
 const LEY_MAP = {
   1: "Constitución de la República Bolivariana de Venezuela",
   2: "Ley de Propiedad Horizontal",
@@ -18,46 +24,99 @@ const LEY_MAP = {
   5: "Código Orgánico Procesal Penal",
   6: "Código Penal",
   7: "Código de Procedimiento Civil",
-  8: "Ley de Arrendamientos Inmobiliarios" // AÑADIDO
+  8: "Ley de Arrendamiento de Vivienda",
+  9: "Ley Orgánica sobre el Derecho de las Mujeres a una Vida Libre de Violencia",
+  10: "Ley de regulación del arrendamiento inmobiliario para el uso comercial",
+  11: "LEY DE REGISTROS Y NOTARIAS"
 };
 
-// Conocimiento experto de respaldo para cuando el filtro falle
+// ========== CONOCIMIENTO EXPERTO POR LEY ==========
 const EXPERT_KNOWLEDGE = {
-  // Caso: Detención en flagrancia
-  flagrancia: {
-    ley_id: 5,
+  1: { // Constitución
     articulos: [
-      { id: 373, texto: "Artículo 373 COPP: Lapso de 12 horas para poner al detenido a disposición del MP y 48 horas para presentarlo ante el Juez." }
+      { id: 44, texto: "Artículo 44: Derecho a la libertad personal. Nadie puede ser arrestado sino en virtud de orden judicial, salvo flagrancia." },
+      { id: 49, texto: "Artículo 49: Debido proceso y derecho a la defensa." },
+      { id: 322, texto: "Artículo 322: Seguridad de la Nación. Corresponde al Estado la protección de la soberanía." }
     ]
   },
-  // Caso: Difamación
-  difamacion: {
-    ley_id: 6,
+  2: { // Propiedad Horizontal
     articulos: [
-      { id: 442, texto: "Artículo 442 Código Penal: Difamación. Penas de 3 a 12 meses de prisión." }
+      { id: 1, texto: "Artículo 1: Ámbito de aplicación de la Ley de Propiedad Horizontal." },
+      { id: 12, texto: "Artículo 12: Obligaciones de los propietarios y copropietarios." },
+      { id: 34, texto: "Artículo 34: Pago de cuotas de mantenimiento y administración." }
     ]
   },
-  // Caso: Letra de cambio
-  letra_cambio: {
-    ley_id: 4,
+  3: { // Código Civil
     articulos: [
-      { id: 488, texto: "Artículo 488 Código de Comercio: Procedimiento ejecutivo para títulos valores." },
-      { id: 490, texto: "Artículo 490 Código de Comercio: Plazo de 3 días para pago u oposición." }
+      { id: 1159, texto: "Artículo 1159: Los contratos tienen fuerza de ley entre las partes." },
+      { id: 1167, texto: "Artículo 1167: Obligaciones condicionales." },
+      { id: 1185, texto: "Artículo 1185: Responsabilidad civil extracontractual. Quien cause daño a otro está obligado a indemnizar." }
     ]
   },
-  // Caso: Desalojo
-  desalojo: {
-    ley_id: 8,
+  4: { // Código de Comercio
     articulos: [
-      { id: 34, texto: "Artículo 34 Ley de Arrendamientos: Causales de desalojo por falta de pago." },
-      { id: 36, texto: "Artículo 36: Procedimiento breve para desalojo." }
+      { id: 488, texto: "Artículo 488: Las letras de cambio, pagarés y cheques se ejecutarán conforme al procedimiento ejecutivo." },
+      { id: 490, texto: "Artículo 490: Presentada la demanda ejecutiva, el Juez decretará el embargo y citará al deudor para que pague en tres días." },
+      { id: 649, texto: "Artículo 649: Requisitos del documento constitutivo de sociedades mercantiles." }
+    ]
+  },
+  5: { // COPP
+    articulos: [
+      { id: 25, texto: "Artículo 25: Acción privada. Solo puede ser ejercida por la víctima o sus representantes." },
+      { id: 267, texto: "Artículo 267: Denuncia. Cualquier persona puede denunciar un hecho punible." },
+      { id: 274, texto: "Artículo 274: Querella. Acto formal que ejerce la víctima para constituirse como parte querellante." },
+      { id: 295, texto: "Artículo 295: Plazo de 6 meses para la investigación preparatoria." },
+      { id: 373, texto: "Artículo 373: Detención en flagrancia. 12 horas policía + 48 horas fiscal = 60 horas total." }
+    ]
+  },
+  6: { // Código Penal
+    articulos: [
+      { id: 175, texto: "Artículo 175: Amenazas. El que amenazare a otro con causarle un daño grave, será penado con prisión de seis a dieciocho meses." },
+      { id: 413, texto: "Artículo 413: Lesiones personales. Penas según la gravedad de la lesión." },
+      { id: 442, texto: "Artículo 442: Difamación. El que impute a otro un hecho determinado capaz de exponerle al desprecio, será penado con prisión de tres a doce meses." },
+      { id: 443, texto: "Artículo 443: La difamación es delito de acción privada." },
+      { id: 444, texto: "Artículo 444: Calumnia. Cuando se imputa un delito falso." },
+      { id: 449, texto: "Artículo 449: Plazo de 6 meses para ejercer la acción penal por difamación." }
+    ]
+  },
+  7: { // CPC
+    articulos: [
+      { id: 339, texto: "Artículo 339: La demanda abre el juicio civil." },
+      { id: 640, texto: "Artículo 640: Juicio de intimación. 10 días para pagar u oponerse." },
+      { id: 881, texto: "Artículo 881: Procedimiento breve. Lapsos reducidos." },
+      { id: 889, texto: "Artículo 889: Lapso probatorio de 10 días para promover y evacuar." }
+    ]
+  },
+  8: { // Ley Arrendamiento Vivienda
+    articulos: [
+      { id: 1, texto: "Artículo 1: Objeto de la Ley. Régimen jurídico especial de arrendamiento de inmuebles urbanos." },
+      { id: 2, texto: "Artículo 2: Carácter estratégico y de interés público." },
+      { id: 34, texto: "Artículo 34: Causales de desalojo. La falta de pago por 2 meses consecutivos es causal de desalojo." },
+      { id: 36, texto: "Artículo 36: Procedimiento breve para el desalojo. Contestación de 15 días y lapso probatorio de 8 días." }
+    ]
+  },
+  9: { // Ley de la Mujer
+    articulos: [
+      { id: 42, texto: "Artículo 42: Medidas de protección para víctimas de violencia." },
+      { id: 53, texto: "Artículo 53: Órdenes de protección y alejamiento." },
+      { id: 58, texto: "Artículo 58: Procedimiento especial para casos de violencia." }
+    ]
+  },
+  10: { // Arrendamiento Comercial
+    articulos: [
+      { id: 1, texto: "Artículo 1: Ámbito de aplicación para inmuebles comerciales." },
+      { id: 15, texto: "Artículo 15: Causales de resolución del contrato." }
+    ]
+  },
+  11: { // Registros y Notarias
+    articulos: [
+      { id: 1, texto: "Artículo 1: Organización del sistema de registros y notarías." },
+      { id: 20, texto: "Artículo 20: Funciones de los registradores y notarios." }
     ]
   }
 };
 
-/**
- * ROBUSTEZ TÉCNICA: Limpia y parsea JSON
- */
+// ========== FUNCIÓN DE PARSEO JSON ==========
 function safeJsonParse(rawText) {
   try {
     return JSON.parse(rawText.trim());
@@ -74,44 +133,58 @@ function safeJsonParse(rawText) {
   }
 }
 
-/**
- * FILTRO SUPREMO MEJORADO - CON FALLBACK INTELIGENTE
- */
-async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
-  // ========== NUEVA VALIDACIÓN ROBUSTA ==========
-  console.log(`📋 Total artículos candidatos: ${articulosCandidatos?.length || 0}`);
-  
-  // Si no hay artículos, activar modo experto
-  if (!articulosCandidatos || articulosCandidatos.length === 0) {
-    console.warn("⚠️ No se recibieron artículos - activando modo experto");
-    return null; // Retornar null para activar el modo experto
+// ========== OBTENER ARTÍCULOS DE SUPABASE POR LEY_ID ==========
+async function obtenerArticulosPorLey(leyId, pregunta) {
+  try {
+    console.log(`🔍 Buscando artículos para ley_id: ${leyId}`);
+    
+    // Primero intentar por ley_id
+    let { data, error } = await supabase
+      .from('articulos')
+      .select('numero_articulo as id, ley_id, contenido as texto')
+      .eq('ley_id', leyId);
+    
+    if (error) {
+      console.error('❌ Error Supabase:', error);
+      return null;
+    }
+    
+    if (data && data.length > 0) {
+      console.log(`✅ Encontrados ${data.length} artículos en Supabase para ley ${leyId}`);
+      // Filtrar por relevancia usando búsqueda textual adicional
+      const relevantes = data.filter(art => 
+        art.texto && pregunta.toLowerCase().split(' ').some(p => 
+          art.texto.toLowerCase().includes(p) && p.length > 4
+        )
+      );
+      return relevantes.length > 0 ? relevantes : data.slice(0, 5);
+    }
+    
+    console.log(`⚠️ No hay artículos en Supabase para ley ${leyId}`);
+    return null;
+    
+  } catch (error) {
+    console.error('❌ Error en obtenerArticulosPorLey:', error);
+    return null;
   }
+}
 
-  // Validar estructura de los artículos
-  const primerArticulo = articulosCandidatos[0];
-  console.log('📋 Estructura del primer artículo:', JSON.stringify(primerArticulo, null, 2));
-  
-  // Verificar que los artículos tengan los campos necesarios
-  const tieneCamposValidos = articulosCandidatos.every(art => 
-    art && typeof art === 'object' && 'id' in art && 'texto' in art
-  );
-
-  if (!tieneCamposValidos) {
-    console.warn("⚠️ Artículos con estructura incorrecta - usando modo experto");
+// ========== FILTRAR ARTÍCULOS RELEVANTES ==========
+async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
+  if (!articulosCandidatos || articulosCandidatos.length === 0) {
     return null;
   }
 
-  // ========== FILTRO CON GROQ ==========
   const promptFiltro = `
-  Actúa como un estricto Juez de Admisión. Evalúa cuáles de los siguientes artículos de la ley venezolana tienen relación directa y útil para responder la pregunta del ciudadano.
+  Evalúa cuáles de los siguientes artículos tienen relación directa con la pregunta.
   
   Pregunta: "${pregunta}"
   
-  Artículos Candidatos:
+  Artículos:
   ${JSON.stringify(articulosCandidatos, null, 2)}
   
-  Responde ÚNICAMENTE con un arreglo JSON que contenga los IDs de los artículos admitidos.
-  Ejemplo de salida: [1, 3, 7]
+  Responde ÚNICAMENTE con un arreglo JSON de IDs admitidos.
+  Ejemplo: [1, 3, 7]
   `;
 
   try {
@@ -124,122 +197,45 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
     
     const responseText = chatCompletion.choices[0]?.message?.content || "";
     const parsedResponse = safeJsonParse(responseText);
-    
     const idsAdmitidos = Array.isArray(parsedResponse) ? parsedResponse : (parsedResponse.ids || []);
     
     if (idsAdmitidos.length > 0) {
-      const filtrados = articulosCandidatos.filter(art => idsAdmitidos.includes(art.id));
-      console.log(`✅ Filtro: ${filtrados.length} artículos relevantes`);
-      return filtrados;
+      return articulosCandidatos.filter(art => idsAdmitidos.includes(art.id));
     }
-    
-    // Si el filtro no encontró nada, devolver los primeros 3
-    console.warn("⚠️ Filtro no encontró artículos - devolviendo primeros 3");
-    return articulosCandidatos.slice(0, 3);
-    
-  } catch (error) {
-    console.error("❌ Error en filtro supremo:", error.message);
     return articulosCandidatos.slice(0, 4);
+  } catch (error) {
+    console.error("❌ Error en filtro:", error.message);
+    return articulosCandidatos.slice(0, 3);
   }
 }
 
-/**
- * DETECCIÓN DE PATRONES PARA MODO EXPERTO
- */
-function detectarPatronLegal(pregunta) {
-  const p = pregunta.toLowerCase();
-  
-  // Patrones de detección
-  if (p.includes('flagrancia') || p.includes('arrestó') || p.includes('detención') || p.includes('detenido')) {
-    return 'flagrancia';
-  }
-  if (p.includes('difamación') || p.includes('difamar') || p.includes('estafador') || p.includes('instagram') || p.includes('redes sociales')) {
-    return 'difamacion';
-  }
-  if (p.includes('letra de cambio') || p.includes('pagaré') || p.includes('cheque') || p.includes('título valor')) {
-    return 'letra_cambio';
-  }
-  if (p.includes('alquiler') || p.includes('inquilino') || p.includes('arrendamiento') || p.includes('desalojo')) {
-    return 'desalojo';
-  }
-  
-  return null;
-}
-
-/**
- * SISTEMA PROMPT MEJORADO
- */
-function construirSystemPrompt(leyId, esModoExperto = false) {
-  let basePrompt = `
-  Eres "LexnaVe", un ultra-meticuloso Abogado Senior y Experto en Derecho Venezolano. 
-  Tu misión es orientar al ciudadano con absoluta precisión técnica, pulcritud en los lapsos procesales y un tono firme, pedagógico y profesional.
-
-  ⚠️ REGLAS DOGMÁTICAS INVIOLABLES:
-
-  --- BLOQUE CIVIL Y CONSTITUCIONAL ---
-  1. PROHIBICIÓN DEL COMODÍN ORDINARIO: Si el usuario pregunta por procedimiento especial (Juicio Breve, Intimación, Estimación de Honorarios), tienes PROHIBIDO usar lapsos del Juicio Ordinario Civil.
-  2. JUICIO EJECUTIVO MERCANTIL (Art. 488 Código de Comercio): Para Letras de Cambio, el procedimiento es EJECUTIVO, no ordinario. Se decreta embargo preventivo y se da 3 días para pago u oposición.
-  3. PROPIEDAD HORIZONTAL (ID 2): Problemas de edificios, condominios, cuotas de mantenimiento.
-  4. DESALOJO (Ley de Arrendamientos): Procedimiento BREVE. Art. 34 para causales, Art. 36 para procedimiento.
-
-  --- BLOQUE PENAL ---
-  5. FLAGRANCIA (Art. 373 COPP): 12 horas policía + 48 horas fiscal = 60 horas total. Si se exceden, procede hábeas corpus.
-  6. DIFAMACIÓN (Art. 442 CP): Acción PRIVADA. No se denuncia en Fiscalía, se interpone ACUSACIÓN PRIVADA con abogado.
-  7. AMENAZAS (Art. 175 CP) y LESIONES (Art. 413 CP): Acción PÚBLICA. Se denuncia en Fiscalía.
-
-  ESTRUCTURA DE RESPUESTA:
-  - Usa encabezados markdown para secciones
-  - Cita ARTÍCULOS ESPECÍFICOS con texto textual
-  - Incluye PLazOS PROCESALES concretos
-  - Diferencia entre ACCIÓN PÚBLICA y PRIVADA
-  - Cierra con: "⚖️ Esto es orientación general. Consulta con un abogado."
-  `;
-
-  // Si es modo experto, añadir instrucción específica
-  if (esModoExperto) {
-    basePrompt += `
-    ⚠️ MODO EXPERTO ACTIVADO: No tienes artículos específicos en el contexto. 
-    Debes usar TU CONOCIMIENTO INTERNO de la legislación venezolana, pero 
-    especifica claramente que estás citando de memoria y recomienda verificar 
-    la norma en el texto oficial.
-    `;
-  }
-
-  return basePrompt;
-}
-
-/**
- * ENDPOINT PRINCIPAL DE CONSULTA LEGAL - VERSIÓN CORREGIDA
- */
+// ========== ENDPOINT PRINCIPAL ==========
 app.post('/api/consultar', async (req, res) => {
-  const { pregunta, articulosRaw } = req.body;
+  const { pregunta, sessionId } = req.body;
   const timestamp = new Date().toISOString();
 
   console.log(`${timestamp} 📨 [Petición] Pregunta: ${pregunta}`);
-  console.log(`${timestamp} 📋 Artículos recibidos: ${articulosRaw?.length || 0}`);
 
   try {
-    // ========== 1. CLASIFICACIÓN PROCESAL MEJORADA ==========
+    // 1. CLASIFICACIÓN PROCESAL
     const promptClasificacion = `
-    Analiza la siguiente consulta legal de un ciudadano venezolano y clasifícala en formato JSON estricto.
+    Clasifica esta consulta legal venezolana en JSON:
     
-    REGLAS DE CLASIFICACIÓN PRIORITARIA:
-    - Si menciona "flagrancia", "arresto", "detención" → ley_id: 5 (COPP)
-    - Si menciona "difamación", "injuria", "calumnia", "redes sociales" → ley_id: 6 (Código Penal)
-    - Si menciona "letra de cambio", "pagaré", "cheque" → ley_id: 4 (Código de Comercio)
-    - Si menciona "alquiler", "inquilino", "arrendamiento" → ley_id: 8 (Ley de Arrendamientos)
-    - Si menciona "propiedad horizontal", "condominio" → ley_id: 2 (LPH)
+    Leyes disponibles:
+    1: Constitución, 2: Propiedad Horizontal, 3: Código Civil
+    4: Código de Comercio, 5: COPP, 6: Código Penal
+    7: CPC, 8: Ley Arrendamiento Vivienda, 9: Ley de la Mujer
+    10: Arrendamiento Comercial, 11: Registros y Notarias
     
     Consulta: "${pregunta}"
-
-    Respuesta en JSON:
+    
+    JSON:
     {
       "needs_clarification": boolean,
       "clarification_question": string o null,
       "ley_id": number o null,
-      "legal_intent": "string descriptivo",
-      "articulo_num": number o null,
-      "text_keywords": ["array", "de", "palabras"]
+      "legal_intent": "string",
+      "text_keywords": ["palabras", "clave"]
     }
     `;
 
@@ -251,66 +247,73 @@ app.post('/api/consultar', async (req, res) => {
     });
 
     const metadata = safeJsonParse(resClasificacion.choices[0]?.message?.content);
-    console.log(`${timestamp} ⚖️ Clasificación:`, JSON.stringify(metadata, null, 2));
+    console.log(`${timestamp} ⚖️ Clasificación: ley_id=${metadata.ley_id}`);
 
-    // Si necesita aclaración
     if (metadata.needs_clarification && metadata.clarification_question) {
       return res.json({ 
-        respuesta: `🔍 ${metadata.clarification_question}\n\n⚖️ _Para brindarte la orientación exacta, requiero este dato de tu caso._` 
+        respuesta: `🔍 ${metadata.clarification_question}\n\n⚖️ _Para brindarte la orientación exacta, requiero este dato._` 
       });
     }
 
-    // ========== 2. FILTRADO DE ARTÍCULOS CON FALLBACK ==========
-    let articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosRaw || []);
-    let esModoExperto = false;
-
-    // Si el filtro devolvió null o 0 artículos, activar modo experto
-    if (!articulosFiltrados || articulosFiltrados.length === 0) {
-      esModoExperto = true;
+    // 2. OBTENER ARTÍCULOS POR LEY_ID
+    let articulosFiltrados = null;
+    
+    if (metadata.ley_id) {
+      // Intentar obtener de Supabase
+      const articulosSupabase = await obtenerArticulosPorLey(metadata.ley_id, pregunta);
       
-      // Intentar detectar patrón para usar conocimiento experto
-      const patron = detectarPatronLegal(pregunta);
-      if (patron && EXPERT_KNOWLEDGE[patron]) {
-        const expertData = EXPERT_KNOWLEDGE[patron];
-        articulosFiltrados = expertData.articulos.map(art => ({
-          ...art,
-          ley_id: expertData.ley_id
-        }));
-        console.log(`${timestamp} 🧠 Usando conocimiento experto para: ${patron}`);
-        console.log(`${timestamp} 📋 Artículos de respaldo: ${articulosFiltrados.length}`);
-      } else {
-        // Si no hay patrón, usar los primeros 4 de los raw o generar mensaje
-        articulosFiltrados = (articulosRaw || []).slice(0, 4);
-        if (articulosFiltrados.length === 0) {
-          // Crear artículos genéricos basados en la clasificación
-          articulosFiltrados = [{
-            id: metadata.articulo_num || 1,
-            texto: `Artículo ${metadata.articulo_num || 1} - Consulta legal sobre ${metadata.legal_intent || 'asunto jurídico'}`
-          }];
+      if (articulosSupabase && articulosSupabase.length > 0) {
+        articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosSupabase);
+      }
+      
+      // Si no hay artículos de Supabase, usar conocimiento experto
+      if (!articulosFiltrados || articulosFiltrados.length === 0) {
+        const expertData = EXPERT_KNOWLEDGE[metadata.ley_id];
+        if (expertData) {
+          console.log(`🧠 Usando conocimiento experto para ley ${metadata.ley_id}`);
+          articulosFiltrados = expertData.articulos;
         }
-        console.log(`${timestamp} 📋 Usando artículos por defecto`);
       }
     }
 
-    console.log(`${timestamp} ✅ Artículos finales: ${articulosFiltrados.length}`);
+    // Si aún no hay artículos, usar un fallback genérico
+    if (!articulosFiltrados || articulosFiltrados.length === 0) {
+      console.log('⚠️ Usando fallback genérico');
+      articulosFiltrados = [
+        { id: 1, texto: "Consulta legal. La ley aplicable dependerá del caso concreto." }
+      ];
+    }
 
-    // ========== 3. CONSTRUCCIÓN DEL PROMPT FINAL ==========
-    const systemPrompt = construirSystemPrompt(metadata.ley_id, esModoExperto);
+    console.log(`✅ Artículos finales: ${articulosFiltrados.length}`);
 
-    const promptFinal = `
-    Contexto Legal Seleccionado:
-    ${JSON.stringify(articulosFiltrados, null, 2)}
-
-    Clasificación del Caso:
-    ${JSON.stringify(metadata, null, 2)}
-
-    Consulta del Usuario:
-    "${pregunta}"
-
-    ${esModoExperto ? '⚠️ MODO EXPERTO: Usa tu conocimiento interno de la legislación venezolana.' : ''}
+    // 3. CONSTRUIR SYSTEM PROMPT MEJORADO
+    const systemPrompt = `
+    Eres "LexnaVe", Abogado Senior Experto en Derecho Venezolano.
+    
+    ⚠️ REGLAS ESTRICTAS:
+    
+    1. SIEMPRE cita artículos con número y texto
+    2. SIEMPRE menciona plazos procesales en días/horas
+    3. Diferencia claramente ACCIÓN PÚBLICA vs ACCIÓN PRIVADA
+    4. Si hay múltiples vías (penal + civil), EXPLÍCALAS POR SEPARADO
+    5. Usa formato markdown con secciones claras
+    6. Cierra con: "⚖️ Esto es orientación general. Consulta con un abogado."
+    
+    Ley aplicable: ${metadata.ley_id ? LEY_MAP[metadata.ley_id] : 'No especificada'}
+    Intención legal: ${metadata.legal_intent || 'Consulta general'}
     `;
 
-    // ========== 4. GENERACIÓN DE RESPUESTA ==========
+    const promptFinal = `
+    Artículos de la ley aplicable:
+    ${JSON.stringify(articulosFiltrados, null, 2)}
+    
+    Consulta del usuario:
+    "${pregunta}"
+    
+    Responde con estructura clara, citando artículos específicos y plazos procesales.
+    `;
+
+    // 4. GENERAR RESPUESTA
     const responseFinal = await groq.chat.completions.create({
       messages: [
         { role: 'system', content: systemPrompt },
@@ -320,48 +323,18 @@ app.post('/api/consultar', async (req, res) => {
       temperature: 0.3
     });
 
-    const respuestaFinal = responseFinal.choices[0]?.message?.content;
-
-    // ========== 5. VALIDACIÓN DE CALIDAD ==========
-    // Verificar si la respuesta tiene citas de artículos
-    const tieneArticulos = /artículo|art\./i.test(respuestaFinal);
-    const tienePlazos = /\d+ horas|\d+ días/i.test(respuestaFinal);
-    
-    console.log(`${timestamp} 📊 Calidad: Artículos=${tieneArticulos}, Plazos=${tienePlazos}`);
-
-    // Si falta calidad, añadir advertencia
-    let respuestaConAdvertencia = respuestaFinal;
-    if (!tieneArticulos || !tienePlazos) {
-      respuestaConAdvertencia += `\n\n⚠️ **Nota del sistema**: Para una orientación más precisa, consulta directamente el texto de la ley en el portal del TSJ o con un abogado especializado.`;
-    }
-
-    res.json({ respuesta: respuestaConAdvertencia });
+    res.json({ respuesta: responseFinal.choices[0]?.message?.content });
 
   } catch (error) {
     console.error(`❌ Error crítico:`, error);
-    
-    // Respuesta de emergencia
-    let respuestaEmergencia = "⚠️ Se produjo un error procesal en el servidor. ";
-    
-    // Intentar dar una respuesta útil aunque falle Groq
-    try {
-      const patron = detectarPatronLegal(req.body.pregunta || '');
-      if (patron && EXPERT_KNOWLEDGE[patron]) {
-        const expertData = EXPERT_KNOWLEDGE[patron];
-        const articulosTexto = expertData.articulos.map(a => a.texto).join('\n');
-        respuestaEmergencia += `\n\n**Orientación de emergencia:**\n${articulosTexto}\n\nConsulta con un abogado para mayor detalle.`;
-      } else {
-        respuestaEmergencia += "Por favor, reintente su consulta o consulte con un abogado.";
-      }
-    } catch (e) {
-      respuestaEmergencia += "Por favor, reintente su consulta.";
-    }
-    
-    res.status(500).json({ respuesta: respuestaEmergencia });
+    res.status(500).json({ 
+      respuesta: "⚠️ Error en el servidor. Por favor, reintente su consulta." 
+    });
   }
 });
 
+// ========== INICIAR SERVIDOR ==========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`🚀 LexnaVe Backend v2.0 (Corregido) en puerto ${PORT}`);
+  console.log(`🚀 LexnaVe Backend v3.0 (Corregido) en puerto ${PORT}`);
 });
