@@ -1,15 +1,26 @@
 import express from 'express';
 import cors from 'cors';
-import Groq from 'groq-sdk'; // Migrado al SDK oficial de Groq
+import Groq from 'groq-sdk';
+import { createClient } from '@supabase/supabase-js';
+import { WebSocket } from 'ws';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Inicialización de Groq leyendo tu variable de entorno en Render
+// ========== CONFIGURACIÓN SUPABASE ==========
+const supabase = createClient(
+    process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co",
+    process.env.SUPABASE_KEY || "sb_publishable_pIYUap3GDuL7xqwP0CCCWA_WrUPp1aN",
+    {
+        realtime: { transport: WebSocket }
+    }
+);
+
+// ========== INICIALIZACIÓN GROQ ==========
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Mapeo exacto de tu tabla public.leyes en Supabase
+// ========== MAPEO DE LEYES ==========
 const LEY_MAP = {
   1: "Constitución de la República Bolivariana de Venezuela",
   2: "Ley de Propiedad Horizontal",
@@ -17,12 +28,102 @@ const LEY_MAP = {
   4: "Código de Comercio",
   5: "Código Orgánico Procesal Penal",
   6: "Código Penal",
-  7: "Código de Procedimiento Civil"
+  7: "Código de Procedimiento Civil",
+  8: "Ley de Arrendamiento de Vivienda",
+  9: "Ley Orgánica sobre el Derecho de las Mujeres a una Vida Libre de Violencia",
+  10: "Ley de regulación del arrendamiento inmobiliario para el uso comercial",
+  11: "LEY DE REGISTROS Y NOTARIAS"
 };
 
-/**
- * ROBUSTEZ TÉCNICA: Limpia y parsea JSON generados por LLMs
- */
+// ========== CONOCIMIENTO EXPERTO POR LEY (FALLBACK) ==========
+const EXPERT_KNOWLEDGE = {
+  1: {
+    articulos: [
+      { id: 44, texto: "Artículo 44: Derecho a la libertad personal. Nadie puede ser arrestado sino en virtud de orden judicial, salvo flagrancia." },
+      { id: 49, texto: "Artículo 49: Debido proceso y derecho a la defensa." },
+      { id: 322, texto: "Artículo 322: Seguridad de la Nación." }
+    ]
+  },
+  2: {
+    articulos: [
+      { id: 1, texto: "Artículo 1: Ámbito de aplicación de la Ley de Propiedad Horizontal." },
+      { id: 12, texto: "Artículo 12: Obligaciones de los propietarios." },
+      { id: 34, texto: "Artículo 34: Pago de cuotas de mantenimiento." }
+    ]
+  },
+  3: {
+    articulos: [
+      { id: 1159, texto: "Artículo 1159: Los contratos tienen fuerza de ley entre las partes." },
+      { id: 1167, texto: "Artículo 1167: Obligaciones condicionales." },
+      { id: 1185, texto: "Artículo 1185: Responsabilidad civil extracontractual." }
+    ]
+  },
+  4: {
+    articulos: [
+      { id: 488, texto: "Artículo 488: Letras de cambio, pagarés y cheques se ejecutarán por procedimiento ejecutivo." },
+      { id: 490, texto: "Artículo 490: Demanda ejecutiva. Embargo y 3 días para pago u oposición." },
+      { id: 649, texto: "Artículo 649: Requisitos del documento constitutivo de sociedades mercantiles." }
+    ]
+  },
+  5: {
+    articulos: [
+      { id: 25, texto: "Artículo 25: Acción privada." },
+      { id: 267, texto: "Artículo 267: Denuncia." },
+      { id: 274, texto: "Artículo 274: Querella." },
+      { id: 295, texto: "Artículo 295: Plazo de 6 meses para investigación." },
+      { id: 373, texto: "Artículo 373: Detención en flagrancia. 12h policía + 48h fiscal = 60h total." }
+    ]
+  },
+  6: {
+    articulos: [
+      { id: 175, texto: "Artículo 175: Amenazas. Prisión de 6 a 18 meses." },
+      { id: 413, texto: "Artículo 413: Lesiones personales." },
+      { id: 442, texto: "Artículo 442: Difamación. Prisión de 3 a 12 meses." },
+      { id: 443, texto: "Artículo 443: Difamación es acción privada." },
+      { id: 444, texto: "Artículo 444: Calumnia." },
+      { id: 449, texto: "Artículo 449: Plazo de 6 meses para difamación." }
+    ]
+  },
+  7: {
+    articulos: [
+      { id: 339, texto: "Artículo 339: La demanda abre el juicio civil." },
+      { id: 640, texto: "Artículo 640: Juicio de intimación. 10 días para pagar u oponerse." },
+      { id: 881, texto: "Artículo 881: Procedimiento breve." },
+      { id: 889, texto: "Artículo 889: Lapso probatorio de 10 días." }
+    ]
+  },
+  8: {
+    articulos: [
+      { id: 1, texto: "Artículo 1: Objeto de la Ley de Arrendamiento." },
+      { id: 2, texto: "Artículo 2: Carácter estratégico y de interés público." },
+      { id: 34, texto: "Artículo 34: Causales de desalojo. Falta de pago por 2 meses." },
+      { id: 36, texto: "Artículo 36: Procedimiento breve. Contestación 15 días, pruebas 8 días." }
+    ]
+  },
+  9: {
+    articulos: [
+      { id: 1, texto: "Artículo 1: Objeto de la Ley contra la Violencia a la Mujer." },
+      { id: 3, texto: "Artículo 3: Derechos protegidos. Vida, integridad, seguridad." },
+      { id: 42, texto: "Artículo 42: Medidas de protección." },
+      { id: 53, texto: "Artículo 53: Órdenes de protección y alejamiento." },
+      { id: 58, texto: "Artículo 58: Procedimiento especial." }
+    ]
+  },
+  10: {
+    articulos: [
+      { id: 1, texto: "Artículo 1: Ámbito de aplicación comercial." },
+      { id: 15, texto: "Artículo 15: Causales de resolución." }
+    ]
+  },
+  11: {
+    articulos: [
+      { id: 1, texto: "Artículo 1: Organización del sistema de registros." },
+      { id: 20, texto: "Artículo 20: Funciones de registradores." }
+    ]
+  }
+};
+
+// ========== FUNCIÓN DE PARSEO JSON ==========
 function safeJsonParse(rawText) {
   try {
     return JSON.parse(rawText.trim());
@@ -36,6 +137,47 @@ function safeJsonParse(rawText) {
       }
     }
     throw e;
+  }
+}
+
+// ========== OBTENER ARTÍCULOS DE SUPABASE POR LEY_ID ==========
+async function obtenerArticulosPorLey(leyId) {
+  try {
+    console.log(`🔍 Buscando artículos para ley_id: ${leyId}`);
+    
+    let { data, error } = await supabase
+      .from('articulos')
+      .select('id, numero_articulo, ley_id, contenido')
+      .eq('ley_id', leyId);
+    
+    if (error) {
+      console.error('❌ Error Supabase:', error);
+      return null;
+    }
+    
+    if (data && data.length > 0) {
+      console.log(`✅ Encontrados ${data.length} artículos en Supabase para ley ${leyId}`);
+      const transformados = data.map(art => {
+        let idNumerico = art.numero_articulo;
+        if (typeof idNumerico === 'string') {
+          const numMatch = idNumerico.match(/\d+/);
+          idNumerico = numMatch ? parseInt(numMatch[0]) : art.id;
+        }
+        return {
+          id: idNumerico,
+          texto: art.contenido,
+          ley_id: art.ley_id
+        };
+      });
+      return transformados.slice(0, 10);
+    }
+    
+    console.log(`⚠️ No hay artículos en Supabase para ley ${leyId}`);
+    return null;
+    
+  } catch (error) {
+    console.error('❌ Error en obtenerArticulosPorLey:', error);
+    return null;
   }
 }
 
@@ -60,15 +202,14 @@ async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
   try {
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: promptFiltro }],
-      model: 'llama-3.3-70b-versatile', // <--- MODELO VIGENTE
+      model: 'llama-3.3-70b-versatile',
       temperature: 0.1,
-      response_format: { type: "json_object" } // Groq fuerza JSON de forma nativa
+      response_format: { type: "json_object" }
     });
     
     const responseText = chatCompletion.choices[0]?.message?.content || "";
     const parsedResponse = safeJsonParse(responseText);
     
-    // Si el modelo devuelve un objeto con un array dentro, o el array directo
     const idsAdmitidos = Array.isArray(parsedResponse) ? parsedResponse : (parsedResponse.ids || []);
     
     if (idsAdmitidos.length > 0) {
@@ -109,7 +250,7 @@ app.post('/api/consultar', async (req, res) => {
 
     const resClasificacion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: promptClasificacion }],
-      model: 'llama-3.3-70b-versatile', // <--- MODELO VIGENTE
+      model: 'llama-3.3-70b-versatile',
       temperature: 0.1,
       response_format: { type: "json_object" }
     });
@@ -123,11 +264,64 @@ app.post('/api/consultar', async (req, res) => {
       });
     }
 
-    // 2. Ejecución del Filtro Supremo
-    const articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosRaw || []);
-    console.log(`${timestamp} ✅ Tras el filtro supremo quedaron ${articulosFiltrados.length} artículos.`);
+    // 2. OBTENER ARTÍCULOS POR LEY_ID (desde Supabase)
+    let articulosFiltrados = [];
+    let leyesAUsar = [];
 
-    // 3. CONSTRUCCIÓN DEL PROMPT DE SISTEMA DEFINITIVO (Blindaje Dogmático Absoluto)
+    // Si hay ley_id de la clasificación, usarla
+    if (metadata.ley_id) {
+      leyesAUsar.push(metadata.ley_id);
+    }
+
+    // Detección de palabras clave para agregar leyes adicionales
+    if (pregunta.match(/amenaz|agres|empuj|golpe|violencia|herid|golp|insult|ofend|maltrat|cuchill|navaj|puñal|pistol|arma/i)) {
+      if (!leyesAUsar.includes(6)) leyesAUsar.push(6);
+      if (!leyesAUsar.includes(9)) leyesAUsar.push(9);
+    }
+
+    if (pregunta.match(/alquil|arrend|inquil|desalo/i)) {
+      if (!leyesAUsar.includes(8)) leyesAUsar.push(8);
+    }
+
+    if (pregunta.match(/pagar|letra|cambio|cheque|mercantil|comerci|comercial|pagaré/i)) {
+      if (!leyesAUsar.includes(4)) leyesAUsar.push(4);
+    }
+
+    // Si no hay leyes detectadas, usar todas las disponibles
+    if (leyesAUsar.length === 0) {
+      leyesAUsar = [1, 2, 3, 4, 5, 6, 7];
+    }
+
+    leyesAUsar = [...new Set(leyesAUsar)];
+    console.log(`📋 Leyes a consultar: ${leyesAUsar.join(', ')}`);
+
+    // Buscar en Supabase por cada ley
+    for (const leyId of leyesAUsar) {
+      const articulos = await obtenerArticulosPorLey(leyId);
+      if (articulos && articulos.length > 0) {
+        articulosFiltrados.push(...articulos.slice(0, 5));
+      }
+    }
+
+    // Si no hay artículos de Supabase, usar EXPERT_KNOWLEDGE como fallback
+    if (articulosFiltrados.length === 0) {
+      console.log('⚠️ No hay artículos de Supabase, usando conocimiento experto');
+      for (const leyId of leyesAUsar) {
+        const expertData = EXPERT_KNOWLEDGE[leyId];
+        if (expertData) {
+          articulosFiltrados.push(...expertData.articulos);
+        }
+      }
+    }
+
+    // Limitar a 10 artículos totales para evitar error de tokens
+    if (articulosFiltrados.length > 10) {
+      articulosFiltrados = articulosFiltrados.slice(0, 10);
+    }
+
+    console.log(`${timestamp} ✅ Tras el filtro quedaron ${articulosFiltrados.length} artículos.`);
+
+    // 3. CONSTRUCCIÓN DEL PROMPT DE SISTEMA DEFINITIVO
     const systemPrompt = `
     Eres "LexnaVe", un ultra-meticuloso Abogado Senior y Experto en Derecho Venezolano. 
     Tu misión es orientar al ciudadano con absoluta precisión técnica, pulcritud en los lapsos procesales y un tono firme, pedagógico y profesional.
@@ -191,7 +385,7 @@ app.post('/api/consultar', async (req, res) => {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: promptFinal }
       ],
-      model: 'llama-3.3-70b-versatile', // <--- MODELO VIGENTE
+      model: 'llama-3.3-70b-versatile',
       temperature: 0.3
     });
 
