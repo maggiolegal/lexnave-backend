@@ -1,5 +1,3 @@
-Este script es bueno:
-
 import express from 'express';
 import cors from 'cors';
 import Groq from 'groq-sdk'; // Migrado al SDK oficial de Groq
