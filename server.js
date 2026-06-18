@@ -101,6 +101,8 @@ const EXPERT_KNOWLEDGE = {
   },
   9: {
     articulos: [
+      { id: 1, texto: "Artículo 1: Objeto de la Ley contra la Violencia a la Mujer." },
+      { id: 3, texto: "Artículo 3: Derechos protegidos. Vida, integridad, seguridad." },
       { id: 42, texto: "Artículo 42: Medidas de protección." },
       { id: 53, texto: "Artículo 53: Órdenes de protección y alejamiento." },
       { id: 58, texto: "Artículo 58: Procedimiento especial." }
@@ -154,11 +156,19 @@ async function obtenerArticulosPorLey(leyId, pregunta) {
     
     if (data && data.length > 0) {
       console.log(`✅ Encontrados ${data.length} artículos en Supabase para ley ${leyId}`);
-      const transformados = data.map(art => ({
-        id: art.numero_articulo || art.id,
-        texto: art.contenido,
-        ley_id: art.ley_id
-      }));
+      const transformados = data.map(art => {
+        let idNumerico = art.numero_articulo;
+        // Si es string, intentar extraer el número
+        if (typeof idNumerico === 'string') {
+          const numMatch = idNumerico.match(/\d+/);
+          idNumerico = numMatch ? parseInt(numMatch[0]) : art.id;
+        }
+        return {
+          id: idNumerico,
+          texto: art.contenido,
+          ley_id: art.ley_id
+        };
+      });
       return transformados.slice(0, 10);
     }
     
@@ -264,7 +274,7 @@ app.post('/api/consultar', async (req, res) => {
     let leyesAUsar = [metadata.ley_id];
 
     // Si hay amenazas/agresión, agregar leyes penales
-    if (pregunta.match(/amenaz|agres|empuj|golpe|violencia|herid|golp|insult|ofend|maltrat/i)) {
+    if (pregunta.match(/amenaz|agres|empuj|golpe|violencia|herid|golp|insult|ofend|maltrat|cuchill|navaj|puñal/i)) {
       leyesAUsar.push(6, 9);
     }
 
@@ -303,8 +313,6 @@ app.post('/api/consultar', async (req, res) => {
     }
 
     console.log(`✅ Artículos finales: ${articulosFiltrados.length}`);
-
-    // LOG para ver qué se envía a Groq
     console.log('📤 Artículos enviados a Groq:', JSON.stringify(articulosFiltrados).slice(0, 500));
 
     // 3. CONSTRUIR SYSTEM PROMPT
@@ -336,7 +344,6 @@ app.post('/api/consultar', async (req, res) => {
     Si un artículo no está en la lista, NO lo inventes.
     `;
 
-    // LOG para ver el prompt completo
     console.log('📝 Prompt final (primeros 500 chars):', promptFinal.slice(0, 500));
 
     // 4. GENERAR RESPUESTA
