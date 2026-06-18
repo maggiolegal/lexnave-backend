@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
+import { WebSocket } from 'ws';
 
 const app = express();
 app.use(cors());
@@ -10,7 +11,6 @@ app.use(express.json());
 // ========== CONFIGURACIÓN ==========
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-import { WebSocket } from 'ws';
 const supabase = createClient(
     process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co",
     process.env.SUPABASE_KEY || "sb_publishable_pIYUap3GDuL7xqwP0CCCWA_WrUPp1aN",
@@ -18,6 +18,7 @@ const supabase = createClient(
         realtime: { transport: WebSocket }
     }
 );
+
 // ========== MAPEO DE LEYES ==========
 const LEY_MAP = {
   1: "Constitución de la República Bolivariana de Venezuela",
@@ -35,86 +36,86 @@ const LEY_MAP = {
 
 // ========== CONOCIMIENTO EXPERTO POR LEY ==========
 const EXPERT_KNOWLEDGE = {
-  1: { // Constitución
+  1: {
     articulos: [
       { id: 44, texto: "Artículo 44: Derecho a la libertad personal. Nadie puede ser arrestado sino en virtud de orden judicial, salvo flagrancia." },
       { id: 49, texto: "Artículo 49: Debido proceso y derecho a la defensa." },
-      { id: 322, texto: "Artículo 322: Seguridad de la Nación. Corresponde al Estado la protección de la soberanía." }
+      { id: 322, texto: "Artículo 322: Seguridad de la Nación." }
     ]
   },
-  2: { // Propiedad Horizontal
+  2: {
     articulos: [
       { id: 1, texto: "Artículo 1: Ámbito de aplicación de la Ley de Propiedad Horizontal." },
-      { id: 12, texto: "Artículo 12: Obligaciones de los propietarios y copropietarios." },
-      { id: 34, texto: "Artículo 34: Pago de cuotas de mantenimiento y administración." }
+      { id: 12, texto: "Artículo 12: Obligaciones de los propietarios." },
+      { id: 34, texto: "Artículo 34: Pago de cuotas de mantenimiento." }
     ]
   },
-  3: { // Código Civil
+  3: {
     articulos: [
       { id: 1159, texto: "Artículo 1159: Los contratos tienen fuerza de ley entre las partes." },
       { id: 1167, texto: "Artículo 1167: Obligaciones condicionales." },
-      { id: 1185, texto: "Artículo 1185: Responsabilidad civil extracontractual. Quien cause daño a otro está obligado a indemnizar." }
+      { id: 1185, texto: "Artículo 1185: Responsabilidad civil extracontractual." }
     ]
   },
-  4: { // Código de Comercio
+  4: {
     articulos: [
-      { id: 488, texto: "Artículo 488: Las letras de cambio, pagarés y cheques se ejecutarán conforme al procedimiento ejecutivo." },
-      { id: 490, texto: "Artículo 490: Presentada la demanda ejecutiva, el Juez decretará el embargo y citará al deudor para que pague en tres días." },
+      { id: 488, texto: "Artículo 488: Letras de cambio, pagarés y cheques se ejecutarán por procedimiento ejecutivo." },
+      { id: 490, texto: "Artículo 490: Demanda ejecutiva. Embargo y 3 días para pago u oposición." },
       { id: 649, texto: "Artículo 649: Requisitos del documento constitutivo de sociedades mercantiles." }
     ]
   },
-  5: { // COPP
+  5: {
     articulos: [
-      { id: 25, texto: "Artículo 25: Acción privada. Solo puede ser ejercida por la víctima o sus representantes." },
-      { id: 267, texto: "Artículo 267: Denuncia. Cualquier persona puede denunciar un hecho punible." },
-      { id: 274, texto: "Artículo 274: Querella. Acto formal que ejerce la víctima para constituirse como parte querellante." },
-      { id: 295, texto: "Artículo 295: Plazo de 6 meses para la investigación preparatoria." },
-      { id: 373, texto: "Artículo 373: Detención en flagrancia. 12 horas policía + 48 horas fiscal = 60 horas total." }
+      { id: 25, texto: "Artículo 25: Acción privada." },
+      { id: 267, texto: "Artículo 267: Denuncia." },
+      { id: 274, texto: "Artículo 274: Querella." },
+      { id: 295, texto: "Artículo 295: Plazo de 6 meses para investigación." },
+      { id: 373, texto: "Artículo 373: Detención en flagrancia. 12h policía + 48h fiscal = 60h total." }
     ]
   },
-  6: { // Código Penal
+  6: {
     articulos: [
-      { id: 175, texto: "Artículo 175: Amenazas. El que amenazare a otro con causarle un daño grave, será penado con prisión de seis a dieciocho meses." },
-      { id: 413, texto: "Artículo 413: Lesiones personales. Penas según la gravedad de la lesión." },
-      { id: 442, texto: "Artículo 442: Difamación. El que impute a otro un hecho determinado capaz de exponerle al desprecio, será penado con prisión de tres a doce meses." },
-      { id: 443, texto: "Artículo 443: La difamación es delito de acción privada." },
-      { id: 444, texto: "Artículo 444: Calumnia. Cuando se imputa un delito falso." },
-      { id: 449, texto: "Artículo 449: Plazo de 6 meses para ejercer la acción penal por difamación." }
+      { id: 175, texto: "Artículo 175: Amenazas. Prisión de 6 a 18 meses." },
+      { id: 413, texto: "Artículo 413: Lesiones personales." },
+      { id: 442, texto: "Artículo 442: Difamación. Prisión de 3 a 12 meses." },
+      { id: 443, texto: "Artículo 443: Difamación es acción privada." },
+      { id: 444, texto: "Artículo 444: Calumnia." },
+      { id: 449, texto: "Artículo 449: Plazo de 6 meses para difamación." }
     ]
   },
-  7: { // CPC
+  7: {
     articulos: [
       { id: 339, texto: "Artículo 339: La demanda abre el juicio civil." },
       { id: 640, texto: "Artículo 640: Juicio de intimación. 10 días para pagar u oponerse." },
-      { id: 881, texto: "Artículo 881: Procedimiento breve. Lapsos reducidos." },
-      { id: 889, texto: "Artículo 889: Lapso probatorio de 10 días para promover y evacuar." }
+      { id: 881, texto: "Artículo 881: Procedimiento breve." },
+      { id: 889, texto: "Artículo 889: Lapso probatorio de 10 días." }
     ]
   },
-  8: { // Ley Arrendamiento Vivienda
+  8: {
     articulos: [
-      { id: 1, texto: "Artículo 1: Objeto de la Ley. Régimen jurídico especial de arrendamiento de inmuebles urbanos." },
+      { id: 1, texto: "Artículo 1: Objeto de la Ley de Arrendamiento." },
       { id: 2, texto: "Artículo 2: Carácter estratégico y de interés público." },
-      { id: 34, texto: "Artículo 34: Causales de desalojo. La falta de pago por 2 meses consecutivos es causal de desalojo." },
-      { id: 36, texto: "Artículo 36: Procedimiento breve para el desalojo. Contestación de 15 días y lapso probatorio de 8 días." }
+      { id: 34, texto: "Artículo 34: Causales de desalojo. Falta de pago por 2 meses." },
+      { id: 36, texto: "Artículo 36: Procedimiento breve. Contestación 15 días, pruebas 8 días." }
     ]
   },
-  9: { // Ley de la Mujer
+  9: {
     articulos: [
-      { id: 42, texto: "Artículo 42: Medidas de protección para víctimas de violencia." },
+      { id: 42, texto: "Artículo 42: Medidas de protección." },
       { id: 53, texto: "Artículo 53: Órdenes de protección y alejamiento." },
-      { id: 58, texto: "Artículo 58: Procedimiento especial para casos de violencia." }
+      { id: 58, texto: "Artículo 58: Procedimiento especial." }
     ]
   },
-  10: { // Arrendamiento Comercial
+  10: {
     articulos: [
-      { id: 1, texto: "Artículo 1: Ámbito de aplicación para inmuebles comerciales." },
-      { id: 15, texto: "Artículo 15: Causales de resolución del contrato." }
+      { id: 1, texto: "Artículo 1: Ámbito de aplicación comercial." },
+      { id: 15, texto: "Artículo 15: Causales de resolución." }
     ]
   },
-  11: { // Registros y Notarias
+  11: {
     articulos: [
-      { id: 1, texto: "Artículo 1: Organización del sistema de registros y notarías." },
-      { id: 20, texto: "Artículo 20: Funciones de los registradores y notarios." }
+      { id: 1, texto: "Artículo 1: Organización del sistema de registros." },
+      { id: 20, texto: "Artículo 20: Funciones de registradores." }
     ]
   }
 };
@@ -141,10 +142,9 @@ async function obtenerArticulosPorLey(leyId, pregunta) {
   try {
     console.log(`🔍 Buscando artículos para ley_id: ${leyId}`);
     
-    // Primero intentar por ley_id
     let { data, error } = await supabase
       .from('articulos')
-      .select('numero_articulo as id, ley_id, contenido as texto')
+      .select('id, numero_articulo, ley_id, contenido')
       .eq('ley_id', leyId);
     
     if (error) {
@@ -154,13 +154,12 @@ async function obtenerArticulosPorLey(leyId, pregunta) {
     
     if (data && data.length > 0) {
       console.log(`✅ Encontrados ${data.length} artículos en Supabase para ley ${leyId}`);
-      // Filtrar por relevancia usando búsqueda textual adicional
-      const relevantes = data.filter(art => 
-        art.texto && pregunta.toLowerCase().split(' ').some(p => 
-          art.texto.toLowerCase().includes(p) && p.length > 4
-        )
-      );
-      return relevantes.length > 0 ? relevantes : data.slice(0, 5);
+      const transformados = data.map(art => ({
+        id: art.numero_articulo || art.id,
+        texto: art.contenido,
+        ley_id: art.ley_id
+      }));
+      return transformados;
     }
     
     console.log(`⚠️ No hay artículos en Supabase para ley ${leyId}`);
@@ -222,13 +221,15 @@ app.post('/api/consultar', async (req, res) => {
   try {
     // 1. CLASIFICACIÓN PROCESAL
     const promptClasificacion = `
-    Clasifica esta consulta legal venezolana en JSON:
+    Clasifica esta consulta legal venezolana en JSON.
     
     Leyes disponibles:
     1: Constitución, 2: Propiedad Horizontal, 3: Código Civil
     4: Código de Comercio, 5: COPP, 6: Código Penal
     7: CPC, 8: Ley Arrendamiento Vivienda, 9: Ley de la Mujer
     10: Arrendamiento Comercial, 11: Registros y Notarias
+    
+    Si aplican varias leyes, pon la PRINCIPAL en ley_id.
     
     Consulta: "${pregunta}"
     
@@ -262,14 +263,12 @@ app.post('/api/consultar', async (req, res) => {
     let articulosFiltrados = null;
     
     if (metadata.ley_id) {
-      // Intentar obtener de Supabase
       const articulosSupabase = await obtenerArticulosPorLey(metadata.ley_id, pregunta);
       
       if (articulosSupabase && articulosSupabase.length > 0) {
         articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosSupabase);
       }
       
-      // Si no hay artículos de Supabase, usar conocimiento experto
       if (!articulosFiltrados || articulosFiltrados.length === 0) {
         const expertData = EXPERT_KNOWLEDGE[metadata.ley_id];
         if (expertData) {
@@ -279,7 +278,6 @@ app.post('/api/consultar', async (req, res) => {
       }
     }
 
-    // Si aún no hay artículos, usar un fallback genérico
     if (!articulosFiltrados || articulosFiltrados.length === 0) {
       console.log('⚠️ Usando fallback genérico');
       articulosFiltrados = [
@@ -289,7 +287,7 @@ app.post('/api/consultar', async (req, res) => {
 
     console.log(`✅ Artículos finales: ${articulosFiltrados.length}`);
 
-    // 3. CONSTRUIR SYSTEM PROMPT MEJORADO
+    // 3. CONSTRUIR SYSTEM PROMPT
     const systemPrompt = `
     Eres "LexnaVe", Abogado Senior Experto en Derecho Venezolano.
     
@@ -300,7 +298,8 @@ app.post('/api/consultar', async (req, res) => {
     3. Diferencia claramente ACCIÓN PÚBLICA vs ACCIÓN PRIVADA
     4. Si hay múltiples vías (penal + civil), EXPLÍCALAS POR SEPARADO
     5. Usa formato markdown con secciones claras
-    6. Cierra con: "⚖️ Esto es orientación general. Consulta con un abogado."
+    6. Si no sabes un artículo, DILO CLARAMENTE
+    7. Cierra con: "⚖️ Esto es orientación general. Consulta con un abogado."
     
     Ley aplicable: ${metadata.ley_id ? LEY_MAP[metadata.ley_id] : 'No especificada'}
     Intención legal: ${metadata.legal_intent || 'Consulta general'}
@@ -314,6 +313,7 @@ app.post('/api/consultar', async (req, res) => {
     "${pregunta}"
     
     Responde con estructura clara, citando artículos específicos y plazos procesales.
+    Si la pregunta es sobre un artículo específico que no está en la lista, DILO CLARAMENTE.
     `;
 
     // 4. GENERAR RESPUESTA
