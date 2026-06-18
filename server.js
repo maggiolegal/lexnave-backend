@@ -260,32 +260,52 @@ app.post('/api/consultar', async (req, res) => {
     }
 
     // 2. OBTENER ARTÍCULOS POR LEY_ID
-    let articulosFiltrados = null;
-    
-    if (metadata.ley_id) {
-      const articulosSupabase = await obtenerArticulosPorLey(metadata.ley_id, pregunta);
-      
-      if (articulosSupabase && articulosSupabase.length > 0) {
-        articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosSupabase);
+    let articulosFiltrados = [];
+    let leyesAUsar = [metadata.ley_id];
+
+    // Si hay amenazas/agresión, agregar leyes penales
+    if (pregunta.match(/amenaz|agres|empuj|golpe|violencia|herid|golp|insult|ofend|maltrat/i)) {
+      leyesAUsar.push(6, 9);
+    }
+
+    // Si hay alquiler, asegurar ley 8
+    if (pregunta.match(/alquil|arrend|inquil|desalo/i)) {
+      if (!leyesAUsar.includes(8)) leyesAUsar.push(8);
+    }
+
+    // Quitar duplicados
+    leyesAUsar = [...new Set(leyesAUsar)];
+
+    console.log(`📋 Leyes a consultar: ${leyesAUsar.join(', ')}`);
+
+    for (const leyId of leyesAUsar) {
+      if (!leyId) continue;
+      const articulos = await obtenerArticulosPorLey(leyId, pregunta);
+      if (articulos && articulos.length > 0) {
+        articulosFiltrados.push(...articulos.slice(0, 5));
       }
-      
-      if (!articulosFiltrados || articulosFiltrados.length === 0) {
-        const expertData = EXPERT_KNOWLEDGE[metadata.ley_id];
+    }
+
+    // Si no hay artículos, usar experto
+    if (articulosFiltrados.length === 0) {
+      console.log('⚠️ No hay artículos de Supabase, usando conocimiento experto');
+      for (const leyId of leyesAUsar) {
+        const expertData = EXPERT_KNOWLEDGE[leyId];
         if (expertData) {
-          console.log(`🧠 Usando conocimiento experto para ley ${metadata.ley_id}`);
-          articulosFiltrados = expertData.articulos;
+          articulosFiltrados.push(...expertData.articulos);
         }
       }
     }
 
-    if (!articulosFiltrados || articulosFiltrados.length === 0) {
-      console.log('⚠️ Usando fallback genérico');
-      articulosFiltrados = [
-        { id: 1, texto: "Consulta legal. La ley aplicable dependerá del caso concreto." }
-      ];
+    // Limitar a 10 artículos totales para evitar error de tokens
+    if (articulosFiltrados.length > 10) {
+      articulosFiltrados = articulosFiltrados.slice(0, 10);
     }
 
     console.log(`✅ Artículos finales: ${articulosFiltrados.length}`);
+
+    // LOG para ver qué se envía a Groq
+    console.log('📤 Artículos enviados a Groq:', JSON.stringify(articulosFiltrados).slice(0, 500));
 
     // 3. CONSTRUIR SYSTEM PROMPT
     const systemPrompt = `
@@ -293,28 +313,31 @@ app.post('/api/consultar', async (req, res) => {
     
     ⚠️ REGLAS ESTRICTAS:
     
-    1. SIEMPRE cita artículos con número y texto
-    2. SIEMPRE menciona plazos procesales en días/horas
-    3. Diferencia claramente ACCIÓN PÚBLICA vs ACCIÓN PRIVADA
-    4. Si hay múltiples vías (penal + civil), EXPLÍCALAS POR SEPARADO
-    5. Usa formato markdown con secciones claras
-    6. Si no sabes un artículo, DILO CLARAMENTE
+    1. SOLO usa los artículos que se te proporcionan en "Artículos de la ley aplicable"
+    2. SIEMPRE cita artículos con número y texto textual
+    3. SIEMPRE menciona plazos procesales en días/horas
+    4. Diferencia claramente ACCIÓN PÚBLICA vs ACCIÓN PRIVADA
+    5. Si hay múltiples vías (penal + civil), EXPLÍCALAS POR SEPARADO
+    6. Usa formato markdown con secciones claras
     7. Cierra con: "⚖️ Esto es orientación general. Consulta con un abogado."
     
-    Ley aplicable: ${metadata.ley_id ? LEY_MAP[metadata.ley_id] : 'No especificada'}
+    Ley principal: ${metadata.ley_id ? LEY_MAP[metadata.ley_id] : 'No especificada'}
     Intención legal: ${metadata.legal_intent || 'Consulta general'}
     `;
 
     const promptFinal = `
-    Artículos de la ley aplicable:
+    Artículos de la ley aplicable (USA SOLO ESTOS ARTÍCULOS):
     ${JSON.stringify(articulosFiltrados, null, 2)}
     
     Consulta del usuario:
     "${pregunta}"
     
-    Responde con estructura clara, citando artículos específicos y plazos procesales.
-    Si la pregunta es sobre un artículo específico que no está en la lista, DILO CLARAMENTE.
+    Responde con estructura clara, citando los artículos específicos que están en la lista.
+    Si un artículo no está en la lista, NO lo inventes.
     `;
+
+    // LOG para ver el prompt completo
+    console.log('📝 Prompt final (primeros 500 chars):', promptFinal.slice(0, 500));
 
     // 4. GENERAR RESPUESTA
     const responseFinal = await groq.chat.completions.create({
@@ -326,7 +349,10 @@ app.post('/api/consultar', async (req, res) => {
       temperature: 0.3
     });
 
-    res.json({ respuesta: responseFinal.choices[0]?.message?.content });
+    const respuesta = responseFinal.choices[0]?.message?.content;
+    console.log('📊 Respuesta generada (primeros 200 chars):', respuesta?.slice(0, 200));
+
+    res.json({ respuesta });
 
   } catch (error) {
     console.error(`❌ Error crítico:`, error);
