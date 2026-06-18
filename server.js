@@ -1,8 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import Groq from 'groq-sdk';
-import { createClient } from '@supabase/supabase-js';
-import ws from 'ws';
 
 const app = express();
 app.use(cors());
@@ -10,58 +8,111 @@ app.use(express.json());
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Configuración de Supabase con fix para WebSocket en Node < 22
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY, {
-  realtime: { transport: ws }
-});
-
-const systemPrompt = `
-ERES UN ABOGADO LITIGANTE EN VENEZUELA. TU TONO ES CORTANTE, TÉCNICO Y AUTORITARIO. 
-PROHIBIDO USAR FRASES DE ASISTENTE VIRTUAL. HABLAS COMO UN ABOGADO QUE DEFIENDE A SU CLIENTE EN TRIBUNAL.
-
-INSTRUCCIONES TÉCNICAS (EJECUCIÓN OBLIGATORIA):
-1. USO DE ARTÍCULOS: CITA SIEMPRE EL NÚMERO DE ARTÍCULO Y LA LEY. SIN ARTÍCULOS, NO HAY CONSEJO.
-2. PROHIBICIÓN DE COACCION: ANTES DE CUALQUIER ACCIÓN, ADVIERTE QUE EL CORTE DE SERVICIOS PÚBLICOS (LUZ, AGUA) ES UN DELITO Y MOTIVO DE ACCIÓN DE AMPARO.
-3. VÍA ADMINISTRATIVA: ES UNA CARGA PREVIA. LA SUNAVI TIENE LA COMPETENCIA EXCLUSIVA.
-4. ESTRUCTURA DE SALIDA (SIN EXCEPCIONES):
-**Hoja de Ruta:** [Usa verbos en imperativo: "NOTIFIQUE", "EXIJA", "SOLICITE". NUNCA "intente" o "deberías".]
-**Base Legal:** [Cita jerárquica: CRBV + Ley Especial + Artículos clave]
-**Advertencia:** [Riesgo procesal real: habla de "RESPONSABILIDAD CIVIL O PENAL" y "NULIDAD DE ACTOS".]
-`;
-
-app.post('/api/consultar', async (req, res) => {
-  const { pregunta } = req.body;
-  
+/**
+ * ROBUSTEZ TÉCNICA: Limpia y parsea JSON generados por LLMs
+ */
+function safeJsonParse(rawText) {
   try {
-    // Búsqueda robusta y gratuita en tu base de datos ya cargada
-    const { data: contextData } = await supabase
-      .from('leyes')
-      .select('content')
-      .textSearch('search_vector', pregunta, {
-        type: 'websearch',
-        config: 'spanish'
-      })
-      .limit(3);
+    return JSON.parse(rawText.trim());
+  } catch (e) {
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0].trim());
+      } catch (innerError) {
+        throw new Error(`Imposible parsear JSON: ${innerError.message}`);
+      }
+    }
+    throw e;
+  }
+}
 
-    const contextoLegal = contextData && contextData.length > 0 
-      ? contextData.map(d => d.content).join('\n\n') 
-      : "No se encontró normativa específica, responde basándote en tu conocimiento de la legislación venezolana vigente.";
+/**
+ * FILTRO SUPREMO: Selección de normativa relevante
+ */
+async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
+  if (!articulosCandidatos || articulosCandidatos.length === 0) return [];
+  const promptFiltro = `
+  Actúa como un estricto Juez de Admisión. Evalúa cuáles de los artículos proporcionados tienen relación directa con la pregunta: "${pregunta}".
+  Artículos: ${JSON.stringify(articulosCandidatos, null, 2)}
+  Responde ÚNICAMENTE con un arreglo JSON de los IDs admitidos. No agregues texto extra.
+  Ejemplo: [1, 3, 7]
+  `;
 
-    const response = await groq.chat.completions.create({
+  try {
+    const chat = await groq.chat.completions.create({
+      messages: [{ role: 'user', content: promptFiltro }],
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.1,
+      response_format: { type: "json_object" }
+    });
+    const ids = safeJsonParse(chat.choices[0]?.message?.content);
+    const idList = Array.isArray(ids) ? ids : (ids.ids || []);
+    return articulosCandidatos.filter(art => idList.includes(art.id));
+  } catch (e) {
+    return articulosCandidatos.slice(0, 3);
+  }
+}
+
+/**
+ * ENDPOINT PRINCIPAL
+ */
+app.post('/api/consultar', async (req, res) => {
+  const { pregunta, articulosRaw } = req.body;
+
+  try {
+    // 1. Clasificación
+    const promptClasificacion = `Analiza la consulta y devuelve un JSON: {"needs_clarification": boolean, "clarification_question": string|null, "legal_intent": string}. Consulta: "${pregunta}"`;
+    const resClasificacion = await groq.chat.completions.create({
+      messages: [{ role: 'user', content: promptClasificacion }],
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.1,
+      response_format: { type: "json_object" }
+    });
+    const metadata = safeJsonParse(resClasificacion.choices[0]?.message?.content);
+
+    if (metadata.needs_clarification) {
+      return res.json({ respuesta: `🔍 ${metadata.clarification_question}` });
+    }
+
+    // 2. Filtro
+    const articulosFiltrados = await filtrarArticulosRelevantes(pregunta, articulosRaw || []);
+
+    // 3. System Prompt (Configuración de LexnaVe)
+    const systemPrompt = `
+    Eres LexnaVe, Abogado Senior experto en Derecho Venezolano.
+    TU MISIÓN: Orientar al ciudadano con precisión técnica, tono firme y profesional.
+    
+    REGLAS DE ORO:
+    - Responde ÚNICAMENTE usando la estructura indicada abajo.
+    - NO añadas introducciones, despedidas ni comentarios fuera de las secciones.
+    - SIEMPRE cita artículos y leyes.
+    - Si el contexto (RAG) es insuficiente, usa tu conocimiento experto en leyes venezolanas vigentes.
+    - NUNCA sugieras cortes de servicios públicos (delito).
+    
+    ESTRUCTURA OBLIGATORIA:
+    **Hoja de Ruta:** [Instrucciones imperativas: "NOTIFIQUE", "EXIJA", "SOLICITE".]
+    **Base Legal:** [Cita jerárquica de normas venezolanas y artículos clave.]
+    **Advertencia:** [Riesgo procesal real: "RESPONSABILIDAD CIVIL O PENAL" y "NULIDAD DE ACTOS".]
+    `;
+
+    // 4. Generación final
+    const responseFinal = await groq.chat.completions.create({
       messages: [
-        { role: 'system', content: systemPrompt + "\n\nCONTEXTO LEGAL RECUPERADO:\n" + contextoLegal },
-        { role: 'user', content: pregunta }
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Contexto Legal: ${JSON.stringify(articulosFiltrados)}\n\nConsulta: "${pregunta}"` }
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.1 
+      temperature: 0.3
     });
 
-    res.json({ respuesta: response.choices[0]?.message?.content });
+    res.json({ respuesta: responseFinal.choices[0]?.message?.content });
+
   } catch (error) {
-    console.error("Error en consulta:", error);
-    res.status(500).json({ respuesta: "⚠️ El sistema legal está verificando la jerarquía normativa. Intente de nuevo." });
+    console.error("Error en flujo:", error);
+    res.status(500).json({ respuesta: "⚠️ Error procesal en el servidor. Intente de nuevo." });
   }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 LexnaVe v4.3 (Full-Text Search + Abogado Senior) activo en ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 LexnaVe v4.3 activo en ${PORT}`));
