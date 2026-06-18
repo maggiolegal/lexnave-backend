@@ -159,7 +159,7 @@ async function obtenerArticulosPorLey(leyId, pregunta) {
         texto: art.contenido,
         ley_id: art.ley_id
       }));
-      return transformados;
+      return transformados.slice(0, 10);
     }
     
     console.log(`⚠️ No hay artículos en Supabase para ley ${leyId}`);
