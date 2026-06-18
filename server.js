@@ -68,9 +68,8 @@ app.post('/api/consultar', async (req, res) => {
     try {
         // 1. Clasificación Procesal
         const promptClasificacion = `Analiza: "${pregunta}". 
-        Responde un JSON estricto con: ley_id (número o null), articulo_num (número o null).
-        Leyes: 1:CRBV, 2:LPH, 3:CCV, 4:CCom, 5:COPP, 6:CP, 7:CPC, 8:Arrendamiento.`;
-
+            Responde un JSON estricto con: ley_ids (array de números), articulo_num (número o null).
+            Leyes disponibles: 1:CRBV, 2:LPH, 3:CCV, 4:CCom, 5:COPP, 6:CP, 7:CPC, 8:Arrendamiento, 9:Violencia, 10:Comercial, 11:Registros.`;
         const resClasificacion = await groq.chat.completions.create({
             messages: [{ role: 'user', content: promptClasificacion }],
             model: 'llama-3.3-70b-versatile',
@@ -78,22 +77,40 @@ app.post('/api/consultar', async (req, res) => {
             response_format: { type: "json_object" }
         });
 
+        // 1. Clasificación (Se mantiene igual, recibiendo un array de IDs)
         const metadata = JSON.parse(resClasificacion.choices[0].message.content);
         console.log(`⚖️ Metadata:`, metadata);
 
-        // 2. Recuperación de Artículos
+        // 2. RECUPERACIÓN MULTI-LEY
         let articulosFiltrados = [];
+        const leyesAUsar = metadata.ley_ids || []; // Asegúrate de que esto sea un array [1, 2, ...]
+
+        // A. PRIORIDAD ALTA: Si el usuario pide un artículo específico, buscarlo primero
+        // Asumimos que si pide un artículo, también indica la ley asociada (ley_id o ley_ids[0])
+        const leyPrincipal = metadata.ley_id || (leyesAUsar.length > 0 ? leyesAUsar[0] : null);
         
-        // Prioridad: Artículo específico
-        if (metadata.articulo_num && metadata.ley_id) {
-            articulosFiltrados = await buscarArticuloEspecifico(metadata.ley_id, metadata.articulo_num) || [];
+        if (metadata.articulo_num && leyPrincipal) {
+            const artEspecifico = await buscarArticuloEspecifico(leyPrincipal, metadata.articulo_num);
+            if (artEspecifico) {
+                articulosFiltrados = artEspecifico;
+            }
         }
 
-        // Si no se encontró específico, buscar contexto general
-        if (articulosFiltrados.length === 0 && metadata.ley_id) {
-            articulosFiltrados = await obtenerArticulosPorLey(metadata.ley_id);
+        // B. RECUPERACIÓN GENERAL (En paralelo para todas las leyes detectadas)
+        // Solo buscamos contexto general si no encontramos el artículo o si la búsqueda fue abierta
+        if (articulosFiltrados.length === 0 && leyesAUsar.length > 0) {
+            console.log(`🔍 Buscando contexto en leyes: ${leyesAUsar.join(', ')}`);
+            
+            // Ejecutamos las búsquedas de todas las leyes simultáneamente
+            const promesasBusqueda = leyesAUsar.map(leyId => obtenerArticulosPorLey(leyId));
+            const resultados = await Promise.all(promesasBusqueda);
+            
+            // Aplanamos el resultado y limitamos para no sobrecargar el prompt
+            articulosFiltrados = resultados.flat().slice(0, 15);
         }
 
+        // 3. Generación de Respuesta (System Prompt)
+        // ... (Tu código actual de Groq sigue aquí usando el articulosFiltrados ya lleno)
         // 3. Prompt Final con instrucción estricta de citación
         const systemPrompt = `Eres LexnaVe, experta en leyes venezolanas.
         REGLA DE ORO: Si el usuario pide un artículo y está en el contexto, cítalo textualmente.
