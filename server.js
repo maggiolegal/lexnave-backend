@@ -34,7 +34,7 @@ const LEY_MAP = {
   11: "LEY DE REGISTROS Y NOTARIAS"
 };
 
-// ========== CONOCIMIENTO EXPERTO POR LEY ==========
+// ========== CONOCIMIENTO EXPERTO POR LEY (SOLO FALLBACK) ==========
 const EXPERT_KNOWLEDGE = {
   1: {
     articulos: [
@@ -158,7 +158,6 @@ async function obtenerArticulosPorLey(leyId, pregunta) {
       console.log(`✅ Encontrados ${data.length} artículos en Supabase para ley ${leyId}`);
       const transformados = data.map(art => {
         let idNumerico = art.numero_articulo;
-        // Si es string, intentar extraer el número
         if (typeof idNumerico === 'string') {
           const numMatch = idNumerico.match(/\d+/);
           idNumerico = numMatch ? parseInt(numMatch[0]) : art.id;
@@ -178,46 +177,6 @@ async function obtenerArticulosPorLey(leyId, pregunta) {
   } catch (error) {
     console.error('❌ Error en obtenerArticulosPorLey:', error);
     return null;
-  }
-}
-
-// ========== FILTRAR ARTÍCULOS RELEVANTES ==========
-async function filtrarArticulosRelevantes(pregunta, articulosCandidatos) {
-  if (!articulosCandidatos || articulosCandidatos.length === 0) {
-    return null;
-  }
-
-  const promptFiltro = `
-  Evalúa cuáles de los siguientes artículos tienen relación directa con la pregunta.
-  
-  Pregunta: "${pregunta}"
-  
-  Artículos:
-  ${JSON.stringify(articulosCandidatos, null, 2)}
-  
-  Responde ÚNICAMENTE con un arreglo JSON de IDs admitidos.
-  Ejemplo: [1, 3, 7]
-  `;
-
-  try {
-    const chatCompletion = await groq.chat.completions.create({
-      messages: [{ role: 'user', content: promptFiltro }],
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.1,
-      response_format: { type: "json_object" }
-    });
-    
-    const responseText = chatCompletion.choices[0]?.message?.content || "";
-    const parsedResponse = safeJsonParse(responseText);
-    const idsAdmitidos = Array.isArray(parsedResponse) ? parsedResponse : (parsedResponse.ids || []);
-    
-    if (idsAdmitidos.length > 0) {
-      return articulosCandidatos.filter(art => idsAdmitidos.includes(art.id));
-    }
-    return articulosCandidatos.slice(0, 4);
-  } catch (error) {
-    console.error("❌ Error en filtro:", error.message);
-    return articulosCandidatos.slice(0, 3);
   }
 }
 
@@ -273,19 +232,20 @@ app.post('/api/consultar', async (req, res) => {
     let articulosFiltrados = [];
     let leyesAUsar = [metadata.ley_id];
 
-    // Si hay amenazas/agresión, agregar leyes penales
-    if (pregunta.match(/amenaz|agres|empuj|golpe|violencia|herid|golp|insult|ofend|maltrat|cuchill|navaj|puñal/i)) {
+    // Detección de palabras clave para agregar leyes adicionales
+    if (pregunta.match(/amenaz|agres|empuj|golpe|violencia|herid|golp|insult|ofend|maltrat|cuchill|navaj|puñal|pistol|arma/i)) {
       leyesAUsar.push(6, 9);
     }
 
-    // Si hay alquiler, asegurar ley 8
     if (pregunta.match(/alquil|arrend|inquil|desalo/i)) {
       if (!leyesAUsar.includes(8)) leyesAUsar.push(8);
     }
 
-    // Quitar duplicados
-    leyesAUsar = [...new Set(leyesAUsar)];
+    if (pregunta.match(/pagar|letra|cambio|cheque|mercantil|comerci|comercial/i)) {
+      if (!leyesAUsar.includes(4)) leyesAUsar.push(4);
+    }
 
+    leyesAUsar = [...new Set(leyesAUsar)];
     console.log(`📋 Leyes a consultar: ${leyesAUsar.join(', ')}`);
 
     for (const leyId of leyesAUsar) {
@@ -307,46 +267,60 @@ app.post('/api/consultar', async (req, res) => {
       }
     }
 
-    // Limitar a 10 artículos totales para evitar error de tokens
+    // Limitar a 10 artículos
     if (articulosFiltrados.length > 10) {
       articulosFiltrados = articulosFiltrados.slice(0, 10);
     }
 
     console.log(`✅ Artículos finales: ${articulosFiltrados.length}`);
-    console.log('📤 Artículos enviados a Groq:', JSON.stringify(articulosFiltrados).slice(0, 500));
+
+    // ========== CLAVE: FORMATO FUERTE PARA GROQ ==========
+    // Convertir artículos a texto plano con formato claro
+    let articulosTexto = '';
+    if (articulosFiltrados.length > 0) {
+      articulosTexto = articulosFiltrados.map(a => 
+        `- ${a.texto}`
+      ).join('\n\n');
+    } else {
+      articulosTexto = 'No se encontraron artículos específicos para esta consulta.';
+    }
+
+    console.log('📤 Artículos formateados para Groq (primeros 300 chars):', articulosTexto.slice(0, 300));
 
     // 3. CONSTRUIR SYSTEM PROMPT
     const systemPrompt = `
-    Eres "LexnaVe", Abogado Senior Experto en Derecho Venezolano.
-    
-    ⚠️ REGLAS ESTRICTAS:
-    
-    1. SOLO usa los artículos que se te proporcionan en "Artículos de la ley aplicable"
-    2. SIEMPRE cita artículos con número y texto textual
-    3. SIEMPRE menciona plazos procesales en días/horas
-    4. Diferencia claramente ACCIÓN PÚBLICA vs ACCIÓN PRIVADA
-    5. Si hay múltiples vías (penal + civil), EXPLÍCALAS POR SEPARADO
-    6. Usa formato markdown con secciones claras
-    7. Cierra con: "⚖️ Esto es orientación general. Consulta con un abogado."
-    
-    Ley principal: ${metadata.ley_id ? LEY_MAP[metadata.ley_id] : 'No especificada'}
-    Intención legal: ${metadata.legal_intent || 'Consulta general'}
-    `;
+Eres "LexnaVe", Abogado Senior Experto en Derecho Venezolano.
 
+INSTRUCCIONES ESTRICTAS:
+
+1. SOLO USA los artículos que se te proporcionan en "ARTÍCULOS DE LA LEY"
+2. NO uses conocimiento externo ni inventes artículos
+3. Si un artículo está en la lista, CÍTALO textualmente con su número
+4. Si un artículo NO está en la lista, NO lo menciones
+5. Diferencia entre ACCIÓN PÚBLICA (penal) y ACCIÓN PRIVADA (civil/mercantil)
+6. Da PLazOS procesales concretos en días/horas
+7. Usa formato markdown con secciones claras
+8. Cierra con: "⚖️ Esto es orientación general. Consulta con un abogado."
+
+Ley principal: ${metadata.ley_id ? LEY_MAP[metadata.ley_id] : 'No especificada'}
+`;
+
+    // 4. CONSTRUIR PROMPT FINAL CON ARTÍCULOS EN FORMATO CLARO
     const promptFinal = `
-    Artículos de la ley aplicable (USA SOLO ESTOS ARTÍCULOS):
-    ${JSON.stringify(articulosFiltrados, null, 2)}
-    
-    Consulta del usuario:
-    "${pregunta}"
-    
-    Responde con estructura clara, citando los artículos específicos que están en la lista.
-    Si un artículo no está en la lista, NO lo inventes.
-    `;
+ARTÍCULOS DE LA LEY (USA SOLO ESTOS):
+
+${articulosTexto}
+
+PREGUNTA DEL USUARIO:
+"${pregunta}"
+
+INSTRUCCIÓN FINAL:
+Responde citando los artículos que aplican al caso. Explica cómo cada artículo se aplica a la situación del usuario. Si el usuario pregunta por un artículo específico que no está en la lista, DILO CLARAMENTE.
+`;
 
     console.log('📝 Prompt final (primeros 500 chars):', promptFinal.slice(0, 500));
 
-    // 4. GENERAR RESPUESTA
+    // 5. GENERAR RESPUESTA
     const responseFinal = await groq.chat.completions.create({
       messages: [
         { role: 'system', content: systemPrompt },
@@ -357,7 +331,7 @@ app.post('/api/consultar', async (req, res) => {
     });
 
     const respuesta = responseFinal.choices[0]?.message?.content;
-    console.log('📊 Respuesta generada (primeros 200 chars):', respuesta?.slice(0, 200));
+    console.log('📊 Respuesta generada (primeros 300 chars):', respuesta?.slice(0, 300));
 
     res.json({ respuesta });
 
@@ -372,5 +346,5 @@ app.post('/api/consultar', async (req, res) => {
 // ========== INICIAR SERVIDOR ==========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`🚀 LexnaVe Backend v3.0 (Corregido) en puerto ${PORT}`);
+  console.log(`🚀 LexnaVe Backend v3.0 (Definitivo) en puerto ${PORT}`);
 });
