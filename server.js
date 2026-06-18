@@ -10,11 +10,14 @@ app.use(express.json());
 // ========== CONFIGURACIÓN ==========
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+import { WebSocket } from 'ws';
 const supabase = createClient(
     process.env.SUPABASE_URL || "https://dhcacnfuummsgpxujpjz.supabase.co",
-    process.env.SUPABASE_KEY || "sb_publishable_pIYUap3GDuL7xqwP0CCCWA_WrUPp1aN"
+    process.env.SUPABASE_KEY || "sb_publishable_pIYUap3GDuL7xqwP0CCCWA_WrUPp1aN",
+    {
+        realtime: { transport: WebSocket }
+    }
 );
-
 // ========== MAPEO DE LEYES ==========
 const LEY_MAP = {
   1: "Constitución de la República Bolivariana de Venezuela",
