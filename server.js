@@ -19,16 +19,25 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 // ========== BÚSQUEDA ESPECÍFICA (Prioridad Alta) ==========
 async function buscarArticuloEspecifico(leyId, numArticulo) {
     try {
-        console.log(`🎯 Buscando Art. ${numArticulo} en Ley ${leyId}`);
+        // Convertimos el número a string limpio
+        const cleanNum = numArticulo.toString().trim();
+        
         const { data, error } = await supabase
             .from('articulos')
             .select('id, numero_articulo, contenido')
-            .eq('ley_id', leyId)
-            .eq('numero_articulo', numArticulo.toString())
-            .limit(1);
+            .eq('ley_id', parseInt(leyId))
+            .eq('numero_articulo', cleanNum); // Sin .limit(1) si hay duplicados, pero debería haber uno
 
-        if (error || !data || data.length === 0) return null;
-        return [{ id: data[0].id, texto: data[0].contenido, ley_id: leyId }];
+        if (error) {
+            console.error("Error SQL:", error);
+            return null;
+        }
+        
+        return data.map(art => ({
+            id: art.id,
+            texto: `Artículo ${art.numero_articulo}: ${art.contenido}`,
+            ley_id: leyId
+        }));
     } catch (e) { return null; }
 }
 
