@@ -3,7 +3,6 @@ import cors from 'cors';
 import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
 import { WebSocket } from 'ws';
-import { pipeline } from '@xenova/transformers';
 
 const app = express();
 app.use(cors());
@@ -33,31 +32,6 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
-// ========== ARTÍCULOS CLAVE POR TEMA ==========
-const ARTICULOS_CLAVE = {
-    'prescripcion': { ley: 3, articulos: ['1969', '1950', '1951', '1952'] },
-    'daños y perjuicios': { ley: 3, articulos: ['1185', '1190', '1969'] },
-    'accidente transito': { ley: 3, articulos: ['1185', '1969'] },
-    'servidumbre': { ley: 3, articulos: ['571', '572', '573', '574', '575', '576', '577'] },
-    'flagrancia': { ley: 5, articulos: ['373'] },
-    'propiedad horizontal': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
-    'amparo': { ley: 1, articulos: ['26', '27', '49'] },
-    'derecho propiedad': { ley: 1, articulos: ['115'] },
-    'vias de hecho': { ley: 3, articulos: ['548'] }
-};
-
-// ========== MODELO DE EMBEDDING LOCAL ==========
-let embedder = null;
-
-async function initEmbedder() {
-    if (!embedder) {
-        console.log('🔄 Cargando modelo de embeddings...');
-        embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-        console.log('✅ Modelo de embeddings cargado');
-    }
-    return embedder;
-}
-
 // ========== UTILIDADES ==========
 function safeJsonParse(rawText) {
     try {
@@ -75,154 +49,33 @@ function safeJsonParse(rawText) {
     }
 }
 
-// ========== GENERAR EMBEDDING DE LA PREGUNTA ==========
-async function generarEmbedding(texto) {
+// ========== OBTENER TODOS LOS ARTÍCULOS DE UNA LEY ==========
+async function obtenerTodosLosArticulos(leyId) {
     try {
-        const model = await initEmbedder();
-        const textoTruncado = texto.length > 500 ? texto.substring(0, 500) : texto;
-        const result = await model(textoTruncado, { pooling: 'mean', normalize: true });
-        const embedding = Array.from(result.data);
-        console.log(`✅ Embedding generado: ${embedding.length} dimensiones`);
-        return embedding;
-    } catch (error) {
-        console.error('❌ Error generando embedding:', error.message);
-        return null;
-    }
-}
-
-// ========== BÚSQUEDA VECTORIAL EN SUPABASE ==========
-async function buscarPorSimilitud(pregunta, leyId = null, limite = 50) {
-    try {
-        const embedding = await generarEmbedding(pregunta);
-        
-        if (!embedding) {
-            console.log('📝 Embedding no disponible, usando búsqueda por texto (fallback)');
-            return buscarPorTexto(pregunta, leyId, limite);
-        }
-        
-        const { data, error } = await supabase.rpc('match_articles', {
-            query_embedding: embedding,
-            match_ley_id: leyId || 0,
-            match_threshold: 0.3,
-            match_count: limite
-        });
-        
-        if (error) {
-            console.error('❌ Error en búsqueda vectorial:', error);
-            return buscarPorTexto(pregunta, leyId, limite);
-        }
-        
-        console.log(`🔍 Búsqueda vectorial (ley ${leyId || 'todas'}): ${data?.length || 0} resultados`);
-        
-        return (data || []).map(art => ({
-            id: art.id,
-            numero_articulo: art.numero_articulo,
-            contenido: art.contenido,
-            ley_id: art.ley_id,
-            ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
-            similitud: art.similarity || 0
-        }));
-        
-    } catch (e) {
-        console.error('❌ Error en búsqueda vectorial:', e.message);
-        return buscarPorTexto(pregunta, leyId, limite);
-    }
-}
-
-// ========== BÚSQUEDA POR TEXTO (FALLBACK) ==========
-async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
-    try {
-        const query = supabase
+        // Obtener todos los artículos de la ley (sin límite)
+        const { data, error } = await supabase
             .from('articulos')
-            .select('id, numero_articulo, contenido, ley_id');
-        
-        if (leyId) {
-            query.eq('ley_id', parseInt(leyId));
-        }
-        
-        query.limit(limite);
-        
-        const { data, error } = await query.execute();
-        
+            .select('id, numero_articulo, contenido, ley_id')
+            .eq('ley_id', parseInt(leyId));
+
         if (error) {
-            console.error('❌ Error en búsqueda por texto:', error);
+            console.error("Error obteniendo artículos:", error);
             return [];
         }
-        
-        console.log(`📝 Búsqueda por texto: ${data?.length || 0} resultados`);
+
+        console.log(`📚 Total artículos de ${LEY_MAP[leyId]}: ${data.length}`);
         
         return (data || []).map(art => ({
             id: art.id,
             numero_articulo: art.numero_articulo,
             contenido: art.contenido,
             ley_id: art.ley_id,
-            ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
-            similitud: 0
+            ley_nombre: LEY_MAP[art.ley_id] || 'Ley'
         }));
-        
     } catch (e) {
-        console.error('❌ Error en búsqueda por texto:', e.message);
+        console.error("Error en obtenerTodosLosArticulos:", e);
         return [];
     }
-}
-
-// ========== BÚSQUEDA HÍBRIDA: VECTORIAL + KEYWORDS ==========
-async function buscarArticulosHibrido(pregunta, leyId = null, limite = 50) {
-    // 1. BÚSQUEDA VECTORIAL
-    let resultados = await buscarPorSimilitud(pregunta, leyId, limite);
-    console.log(`📊 Vectorial: ${resultados.length} resultados`);
-    
-    // 2. SI NO HAY RESULTADOS O SON POCOS, BUSCAR POR KEYWORDS
-    if (resultados.length < 3) {
-        console.log('🔍 Pocos resultados vectoriales. Buscando artículos clave por tema...');
-        
-        const preguntaLower = pregunta.toLowerCase();
-        let articulosClaveEncontrados = [];
-        let leyUsar = leyId;
-        
-        // Detectar tema de la pregunta
-        for (const [tema, info] of Object.entries(ARTICULOS_CLAVE)) {
-            if (preguntaLower.includes(tema) || 
-                tema.split(' ').some(palabra => preguntaLower.includes(palabra))) {
-                console.log(`🔑 Tema detectado: "${tema}"`);
-                leyUsar = info.ley;
-                
-                // Buscar cada artículo clave
-                for (const numArt of info.articulos) {
-                    const { data, error } = await supabase
-                        .from('articulos')
-                        .select('id, numero_articulo, contenido, ley_id')
-                        .eq('ley_id', parseInt(info.ley))
-                        .eq('numero_articulo', numArt)
-                        .maybeSingle();
-                    
-                    if (data && !error) {
-                        articulosClaveEncontrados.push({
-                            id: data.id,
-                            numero_articulo: data.numero_articulo,
-                            contenido: data.contenido,
-                            ley_id: data.ley_id,
-                            ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
-                            similitud: 0.9 // Alta prioridad
-                        });
-                        console.log(`✅ Artículo clave encontrado: ${numArt}`);
-                    }
-                }
-                break;
-            }
-        }
-        
-        // Combinar resultados: primero los clave, luego los vectoriales
-        if (articulosClaveEncontrados.length > 0) {
-            // Evitar duplicados
-            const idsClave = new Set(articulosClaveEncontrados.map(a => a.id));
-            const vectorialesFiltrados = resultados.filter(a => !idsClave.has(a.id));
-            resultados = [...articulosClaveEncontrados, ...vectorialesFiltrados];
-            console.log(`📊 Híbrido: ${resultados.length} resultados (${articulosClaveEncontrados.length} clave + ${vectorialesFiltrados.length} vectorial)`);
-        }
-    }
-    
-    return resultados;
 }
 
 // ========== GROQ: CLASIFICAR CONSULTA ==========
@@ -234,10 +87,10 @@ async function clasificarConsulta(pregunta) {
     - "Prescripción", "daños", "perjuicios", "responsabilidad civil", "accidente" → Código Civil (Ley 3)
     - "Contrato", "arrendamiento", "alquiler" → Código Civil (Ley 3)
     - "Propiedad horizontal", "condominio", "vecino" → LPH (Ley 2)
-    - "Constitución", "derechos humanos", "amparo" → CRBV (Ley 1)
+    - "Constitución", "derechos humanos", "amparo", "estado de excepción" → CRBV (Ley 1)
     - "Comercio", "sociedad", "empresa" → Código de Comercio (Ley 4)
     - "Procesal", "procedimiento", "juicio" → CPC (Ley 7)
-    - "Penal", "delito", "crimen" → COPP (Ley 5) o Código Penal (Ley 6)
+    - "Detención", "flagrancia", "penal", "delito" → COPP (Ley 5)
     - "Arrendamiento vivienda" → Ley 8
     - "Violencia mujer" → Ley 9
 
@@ -282,27 +135,44 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== GROQ: SELECCIONAR ARTÍCULOS RELEVANTES ==========
-async function seleccionarArticulosRelevantes(pregunta, articulos, leyId) {
+// ========== GROQ: SELECCIONAR ARTÍCULO EXACTO DE TODOS ==========
+async function seleccionarArticuloExacto(pregunta, articulos, leyId) {
     if (!articulos || articulos.length === 0) return [];
-    
+
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    if (articulos.length <= 20) {
-        console.log(`📚 Solo ${articulos.length} artículos, pasando todos al modelo`);
-        return articulos;
+    // Si hay pocos artículos, pasarlos todos
+    if (articulos.length <= 200) {
+        console.log(`📚 ${articulos.length} artículos, pasando todos a Groq para análisis`);
+    } else {
+        console.log(`📚 ${articulos.length} artículos, Groq analizará todos`);
     }
-    
+
+    // Construir lista de artículos para Groq (con límite de caracteres)
+    let listaArticulos = "";
+    for (let i = 0; i < articulos.length; i++) {
+        const a = articulos[i];
+        const texto = a.contenido.substring(0, 500);
+        listaArticulos += `${i+1}. Artículo ${a.numero_articulo}: ${texto}...\n`;
+        if (listaArticulos.length > 15000) break; // Limitar para no exceder tokens
+    }
+
     const prompt = `
-    Eres un Juez experto en derecho venezolano. De la siguiente lista de artículos de la ${leyNombre}, selecciona los que son RELEVANTES para responder la pregunta del ciudadano.
+    Eres un Juez experto en derecho venezolano. La siguiente lista contiene TODOS los artículos de la ${leyNombre} (${articulos.length} artículos en total).
 
-    Pregunta: "${pregunta}"
+    Tu tarea es:
+    1. Leer TODOS los artículos.
+    2. Identificar el ARTÍCULO EXACTO que responde a la pregunta del ciudadano.
+    3. Si hay varios artículos relevantes, selecciona el MÁS IMPORTANTE (el que responde directamente).
 
-    Artículos disponibles:
-    ${articulos.map((a, i) => `${i+1}. Artículo ${a.numero_articulo}: ${a.contenido.substring(0, 300)}...`).join('\n')}
+    Pregunta del ciudadano: "${pregunta}"
 
-    Responde SOLO con un arreglo JSON de los números de los artículos seleccionados.
-    Ejemplo: [5, 14, 18]
+    Lista de artículos (mostrados parcialmente):
+    ${listaArticulos}
+
+    Responde SOLO con un arreglo JSON de los números de los artículos seleccionados (máximo 3).
+    Ejemplo: [373] o [337, 338, 339]
+    Si ningún artículo responde la pregunta, responde: []
     `;
 
     try {
@@ -317,19 +187,29 @@ async function seleccionarArticulosRelevantes(pregunta, articulos, leyId) {
         const seleccionados = Array.isArray(result) ? result : (result.ids || result.articulos || []);
 
         if (seleccionados.length === 0) {
-            console.log('⚠️ No se seleccionaron artículos, usando los primeros 5');
-            return articulos.slice(0, 5);
+            console.log('⚠️ Groq no seleccionó ningún artículo');
+            return [];
         }
 
-        const articulosSeleccionados = articulos.filter((_, index) => 
-            seleccionados.includes(index + 1) || seleccionados.includes(articulos[index].id)
-        );
+        // Mapear números seleccionados a artículos completos
+        const articulosSeleccionados = [];
+        for (const numArt of seleccionados) {
+            // Buscar por número de artículo (puede ser string o número)
+            const encontrado = articulos.find(a => 
+                a.numero_articulo.toString() === numArt.toString() ||
+                a.numero_articulo.toString().replace(/\D/g, '') === numArt.toString()
+            );
+            if (encontrado) {
+                articulosSeleccionados.push(encontrado);
+            }
+        }
 
-        console.log(`📊 Artículos seleccionados: ${articulosSeleccionados.map(a => a.numero_articulo).join(', ')}`);
-        return articulosSeleccionados.length > 0 ? articulosSeleccionados : articulos.slice(0, 5);
+        console.log(`📊 Artículos seleccionados por Groq: ${articulosSeleccionados.map(a => a.numero_articulo).join(', ')}`);
+        return articulosSeleccionados;
+
     } catch (error) {
         console.error("Error en selección de artículos:", error);
-        return articulos.slice(0, 5);
+        return [];
     }
 }
 
@@ -429,67 +309,56 @@ app.post('/api/consultar', async (req, res) => {
         const clasificacion = await clasificarConsulta(pregunta);
         let leyId = clasificacion.ley_id;
 
-        // 2. BÚSQUEDA HÍBRIDA
-        let articulosEncontrados = [];
-        
-        if (leyId) {
-            console.log(`🔍 Buscando en ley ${leyId} (${LEY_MAP[leyId]})`);
-            articulosEncontrados = await buscarArticulosHibrido(pregunta, leyId, 50);
-        }
-
-        // 3. SI NO ENCUENTRA RESULTADOS, BUSCAR EN TODAS LAS LEYES
-        if (articulosEncontrados.length === 0) {
-            console.log('🔄 No se encontraron resultados en la ley detectada. Buscando en todas las leyes...');
-            articulosEncontrados = await buscarArticulosHibrido(pregunta, null, 50);
-            
-            if (articulosEncontrados.length > 0) {
-                leyId = articulosEncontrados[0].ley_id;
-                console.log(`✅ Artículos encontrados en ${LEY_MAP[leyId]}`);
-            }
-        }
-
-        if (articulosEncontrados.length === 0) {
+        if (!leyId) {
             return res.json({
-                respuesta: "⚠️ No encontré artículos relevantes en mi base de datos para tu consulta. Te recomiendo reformular la pregunta o consultar con un abogado."
+                respuesta: "⚠️ No pude identificar la ley aplicable a tu consulta. Por favor, reformula tu pregunta o consulta con un abogado."
             });
         }
 
-        console.log(`📚 Total artículos encontrados: ${articulosEncontrados.length}`);
+        // 2. OBTENER TODOS LOS ARTÍCULOS DE LA LEY
+        console.log(`🔍 Obteniendo todos los artículos de ${LEY_MAP[leyId]}...`);
+        const todosLosArticulos = await obtenerTodosLosArticulos(leyId);
 
-        // 4. SELECCIONAR ARTÍCULOS RELEVANTES CON GROQ
-        const articulosRelevantes = await seleccionarArticulosRelevantes(
+        if (todosLosArticulos.length === 0) {
+            return res.json({
+                respuesta: `⚠️ No tengo artículos de ${LEY_MAP[leyId]} en mi base de datos.`
+            });
+        }
+
+        // 3. GROQ SELECCIONA EL ARTÍCULO EXACTO DE TODOS
+        const articulosSeleccionados = await seleccionarArticuloExacto(
             pregunta, 
-            articulosEncontrados, 
+            todosLosArticulos, 
             leyId
         );
 
-        if (articulosRelevantes.length === 0) {
+        if (articulosSeleccionados.length === 0) {
             return res.json({
                 respuesta: "⚠️ No encontré artículos relevantes para tu consulta. Te recomiendo consultar con un abogado especializado."
             });
         }
 
-        console.log(`📊 Artículos relevantes: ${articulosRelevantes.map(a => a.numero_articulo).join(', ')}`);
+        console.log(`📊 Artículos seleccionados: ${articulosSeleccionados.map(a => a.numero_articulo).join(', ')}`);
 
-        // 5. GENERAR RESPUESTA FINAL
+        // 4. GENERAR RESPUESTA FINAL
         let respuesta = await generarRespuesta(
             pregunta, 
-            articulosRelevantes, 
+            articulosSeleccionados, 
             leyId
         );
 
-        // 6. VALIDAR CITAS
-        const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosRelevantes);
+        // 5. VALIDAR CITAS
+        const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosSeleccionados);
 
         if (!citasValidas) {
             console.log('⚠️ Se detectaron artículos alucinados. Regenerando respuesta...');
             respuesta = await generarRespuesta(
                 pregunta, 
-                articulosRelevantes, 
+                articulosSeleccionados, 
                 leyId
             );
             
-            const citasValidas2 = await verificarCitasEnRespuesta(respuesta, articulosRelevantes);
+            const citasValidas2 = await verificarCitasEnRespuesta(respuesta, articulosSeleccionados);
             if (!citasValidas2) {
                 return res.json({
                     respuesta: "⚠️ No tengo información suficiente en mi base de datos para responder esta consulta con precisión. Te recomiendo consultar con un abogado especializado."
@@ -509,8 +378,6 @@ app.post('/api/consultar', async (req, res) => {
 
 // ========== INICIO DEL SERVIDOR ==========
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, async () => {
-    console.log('🚀 LexnaVe Backend iniciando...');
-    await initEmbedder();
+app.listen(PORT, () => {
     console.log(`🚀 LexnaVe Backend activo en puerto ${PORT}`);
 });
