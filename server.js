@@ -33,6 +33,21 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
+// ========== ARTÍCULOS CLAVE POR LEY ==========
+const ARTICULOS_CLAVE = {
+    1: ['26', '27', '49', '115', '322', '337', '338', '339', '340'],
+    2: ['3', '5', '7', '8', '9', '14', '18', '21', '22'],
+    3: ['548', '571', '572', '573', '574', '575', '576', '577', '1185', '1190', '1950', '1951', '1952', '1969'],
+    4: ['410', '110', '63'],
+    5: ['8', '244', '295', '373', '374', '375', '391'],
+    6: ['26', '431'],
+    7: ['174', '340', '881'],
+    8: ['1', '2', '3', '4', '5'],
+    9: ['1', '2', '3'],
+    10: ['1', '2', '3'],
+    11: ['1', '2', '3']
+};
+
 // ========== MODELO DE EMBEDDING LOCAL ==========
 let embedder = null;
 
@@ -78,7 +93,7 @@ async function generarEmbedding(texto) {
 }
 
 // ========== ETAPA 1: BÚSQUEDA SEMÁNTICA (REDUCCIÓN) ==========
-async function buscarCandidatos(pregunta, leyId = null, limite = 20) {
+async function buscarCandidatos(pregunta, leyId = null, limite = 30) {
     try {
         const embedding = await generarEmbedding(pregunta);
         
@@ -90,7 +105,7 @@ async function buscarCandidatos(pregunta, leyId = null, limite = 20) {
         const { data, error } = await supabase.rpc('match_articles', {
             query_embedding: embedding,
             match_ley_id: leyId || 0,
-            match_threshold: 0.25,
+            match_threshold: 0.2,
             match_count: limite
         });
         
@@ -117,7 +132,7 @@ async function buscarCandidatos(pregunta, leyId = null, limite = 20) {
 }
 
 // ========== BÚSQUEDA POR TEXTO (FALLBACK) ==========
-async function buscarPorTexto(pregunta, leyId = null, limite = 20) {
+async function buscarPorTexto(pregunta, leyId = null, limite = 30) {
     try {
         const query = supabase
             .from('articulos')
@@ -151,6 +166,42 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 20) {
         console.error('❌ Error en búsqueda por texto:', e.message);
         return [];
     }
+}
+
+// ========== FORZAR ARTÍCULOS CLAVE EN CANDIDATOS ==========
+async function forzarArticulosClave(leyId, candidatos) {
+    if (!leyId) return candidatos;
+    
+    const articulosClave = ARTICULOS_CLAVE[leyId] || [];
+    if (articulosClave.length === 0) return candidatos;
+    
+    console.log(`🔑 Forzando artículos clave: ${articulosClave.join(', ')}`);
+    
+    const idsExistentes = new Set(candidatos.map(a => a.id));
+    
+    for (const numArt of articulosClave) {
+        const { data, error } = await supabase
+            .from('articulos')
+            .select('id, numero_articulo, contenido, ley_id')
+            .eq('ley_id', parseInt(leyId))
+            .eq('numero_articulo', numArt)
+            .maybeSingle();
+        
+        if (data && !error && !idsExistentes.has(data.id)) {
+            candidatos.push({
+                id: data.id,
+                numero_articulo: data.numero_articulo,
+                contenido: data.contenido,
+                ley_id: data.ley_id,
+                ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
+                similitud: 0.99 // Alta prioridad
+            });
+            idsExistentes.add(data.id);
+            console.log(`✅ Artículo clave forzado: ${numArt}`);
+        }
+    }
+    
+    return candidatos;
 }
 
 // ========== GROQ: CLASIFICAR CONSULTA ==========
@@ -217,30 +268,37 @@ async function seleccionarArticuloExacto(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     console.log(`📚 ETAPA 2 - Analizando ${candidatos.length} candidatos con Groq...`);
 
-    // Construir lista de candidatos
+    // Construir lista de candidatos con números
     let listaCandidatos = "";
     for (let i = 0; i < candidatos.length; i++) {
         const a = candidatos[i];
         const texto = a.contenido.substring(0, 400);
-        listaCandidatos += `${i+1}. Artículo ${a.numero_articulo} (similitud: ${(a.similitud || 0).toFixed(2)}): ${texto}...\n`;
+        const prioridad = a.similitud >= 0.9 ? ' ⭐ (Artículo clave)' : '';
+        listaCandidatos += `${i+1}. Artículo ${a.numero_articulo} (similitud: ${(a.similitud || 0).toFixed(2)})${prioridad}: ${texto}...\n`;
     }
 
     const prompt = `
     Eres un Juez experto en derecho venezolano. De la siguiente lista de artículos candidatos de la ${leyNombre}, selecciona el ARTÍCULO EXACTO que responde a la pregunta del ciudadano.
 
+    ⚠️ INSTRUCCIONES IMPORTANTES:
+    1. Analiza TODOS los artículos candidatos.
+    2. Selecciona el que responde DIRECTAMENTE a la pregunta.
+    3. Si la pregunta es sobre detención, busca artículos que mencionen plazos, horas, presentación ante juez.
+    4. Si la pregunta es sobre prescripción, busca artículos que mencionen años, plazos, interrupción.
+    5. Responde SOLO con un arreglo JSON de números de artículos (máximo 3).
+    6. Si no encuentras un artículo que responda, NO inventes. Responde con [].
+    7. Ejemplo para detención: [373]
+    8. Ejemplo para prescripción: [1969]
+
     Pregunta del ciudadano: "${pregunta}"
 
-    Artículos candidatos (ya preseleccionados por relevancia semántica):
+    Artículos candidatos:
     ${listaCandidatos}
 
-    Instrucciones:
-    1. Analiza cada artículo.
-    2. Selecciona el que responde DIRECTAMENTE a la pregunta.
-    3. Si hay varios, selecciona el MÁS IMPORTANTE (máximo 3).
-
-    Responde SOLO con un arreglo JSON de los números de los artículos seleccionados.
-    Ejemplo: [373] o [337, 338]
-    Si ningún artículo responde la pregunta, responde: []
+    Responde SOLO con un arreglo JSON. Ejemplos:
+    - [373]
+    - [337, 338]
+    - []
     `;
 
     try {
@@ -251,7 +309,10 @@ async function seleccionarArticuloExacto(pregunta, candidatos, leyId) {
             response_format: { type: "json_object" }
         });
 
-        const result = safeJsonParse(response.choices[0].message.content);
+        const responseText = response.choices[0].message.content;
+        console.log(`📝 Respuesta de Groq (Etapa 2): ${responseText.substring(0, 100)}...`);
+        
+        const result = safeJsonParse(responseText);
         const seleccionados = Array.isArray(result) ? result : (result.ids || result.articulos || []);
 
         if (seleccionados.length === 0) {
@@ -262,20 +323,23 @@ async function seleccionarArticuloExacto(pregunta, candidatos, leyId) {
         // Mapear números seleccionados a artículos completos
         const articulosSeleccionados = [];
         for (const numArt of seleccionados) {
+            const numStr = numArt.toString();
             const encontrado = candidatos.find(a => 
-                a.numero_articulo.toString() === numArt.toString() ||
-                a.numero_articulo.toString().replace(/\D/g, '') === numArt.toString()
+                a.numero_articulo.toString() === numStr ||
+                a.numero_articulo.toString().replace(/\D/g, '') === numStr
             );
             if (encontrado) {
                 articulosSeleccionados.push(encontrado);
+                console.log(`✅ Artículo seleccionado: ${encontrado.numero_articulo}`);
+            } else {
+                console.log(`⚠️ Artículo ${numArt} no encontrado en candidatos`);
             }
         }
 
-        console.log(`📊 ETAPA 2 - Artículos seleccionados: ${articulosSeleccionados.map(a => a.numero_articulo).join(', ')}`);
         return articulosSeleccionados;
 
     } catch (error) {
-        console.error("Error en selección de artículos:", error);
+        console.error("❌ Error en selección de artículos:", error.message);
         return [];
     }
 }
@@ -365,7 +429,7 @@ async function verificarCitasEnRespuesta(respuesta, articulosContexto) {
     return true;
 }
 
-// ========== ENDPOINT PRINCIPAL (RAG EN DOS ETAPAS) ==========
+// ========== ENDPOINT PRINCIPAL (RAG EN DOS ETAPAS MEJORADO) ==========
 app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     const timestamp = new Date().toISOString();
@@ -384,8 +448,11 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`🔍 ETAPA 1 - Buscando candidatos en ${LEY_MAP[leyId]}...`);
         
-        // 2. ETAPA 1: BÚSQUEDA SEMÁNTICA (reduce 500+ artículos a ~20 candidatos)
-        let candidatos = await buscarCandidatos(pregunta, leyId, 25);
+        // 2. ETAPA 1: BÚSQUEDA SEMÁNTICA
+        let candidatos = await buscarCandidatos(pregunta, leyId, 30);
+        
+        // 3. FORZAR ARTÍCULOS CLAVE
+        candidatos = await forzarArticulosClave(leyId, candidatos);
         
         // Si no hay candidatos, buscar en todas las leyes
         if (candidatos.length === 0) {
@@ -405,7 +472,7 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📊 ETAPA 1 - ${candidatos.length} candidatos encontrados`);
 
-        // 3. ETAPA 2: GROQ SELECCIONA EL ARTÍCULO EXACTO
+        // 4. ETAPA 2: GROQ SELECCIONA EL ARTÍCULO EXACTO
         const articulosSeleccionados = await seleccionarArticuloExacto(
             pregunta, 
             candidatos, 
@@ -413,21 +480,29 @@ app.post('/api/consultar', async (req, res) => {
         );
 
         if (articulosSeleccionados.length === 0) {
-            return res.json({
-                respuesta: "⚠️ No encontré artículos relevantes para tu consulta. Te recomiendo consultar con un abogado especializado."
-            });
+            // Si Groq no seleccionó nada, usar el candidato con mayor similitud
+            console.log('⚠️ Groq no seleccionó artículos. Usando el candidato con mayor similitud...');
+            const mejorCandidato = candidatos.sort((a, b) => b.similitud - a.similitud)[0];
+            if (mejorCandidato && mejorCandidato.similitud > 0.3) {
+                articulosSeleccionados.push(mejorCandidato);
+                console.log(`📊 Usando artículo por similitud: ${mejorCandidato.numero_articulo}`);
+            } else {
+                return res.json({
+                    respuesta: "⚠️ No encontré artículos relevantes para tu consulta. Te recomiendo consultar con un abogado especializado."
+                });
+            }
         }
 
         console.log(`📊 ETAPA 2 - Artículos seleccionados: ${articulosSeleccionados.map(a => a.numero_articulo).join(', ')}`);
 
-        // 4. GENERAR RESPUESTA FINAL
+        // 5. GENERAR RESPUESTA FINAL
         let respuesta = await generarRespuesta(
             pregunta, 
             articulosSeleccionados, 
             leyId
         );
 
-        // 5. VALIDAR CITAS
+        // 6. VALIDAR CITAS
         const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosSeleccionados);
 
         if (!citasValidas) {
