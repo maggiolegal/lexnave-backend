@@ -33,6 +33,19 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
+// ========== ARTÍCULOS CLAVE POR TEMA ==========
+const ARTICULOS_CLAVE = {
+    'prescripcion': { ley: 3, articulos: ['1969', '1950', '1951', '1952'] },
+    'daños y perjuicios': { ley: 3, articulos: ['1185', '1190', '1969'] },
+    'accidente transito': { ley: 3, articulos: ['1185', '1969'] },
+    'servidumbre': { ley: 3, articulos: ['571', '572', '573', '574', '575', '576', '577'] },
+    'flagrancia': { ley: 5, articulos: ['373'] },
+    'propiedad horizontal': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
+    'amparo': { ley: 1, articulos: ['26', '27', '49'] },
+    'derecho propiedad': { ley: 1, articulos: ['115'] },
+    'vias de hecho': { ley: 3, articulos: ['548'] }
+};
+
 // ========== MODELO DE EMBEDDING LOCAL ==========
 let embedder = null;
 
@@ -66,7 +79,6 @@ function safeJsonParse(rawText) {
 async function generarEmbedding(texto) {
     try {
         const model = await initEmbedder();
-        // Truncar texto para evitar problemas de tamaño
         const textoTruncado = texto.length > 500 ? texto.substring(0, 500) : texto;
         const result = await model(textoTruncado, { pooling: 'mean', normalize: true });
         const embedding = Array.from(result.data);
@@ -78,7 +90,7 @@ async function generarEmbedding(texto) {
     }
 }
 
-// ========== BÚSQUEDA VECTORIAL EN SUPABASE (UMBRAL BAJO) ==========
+// ========== BÚSQUEDA VECTORIAL EN SUPABASE ==========
 async function buscarPorSimilitud(pregunta, leyId = null, limite = 50) {
     try {
         const embedding = await generarEmbedding(pregunta);
@@ -88,7 +100,6 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 50) {
             return buscarPorTexto(pregunta, leyId, limite);
         }
         
-        // Umbral más bajo (0.3) para capturar más resultados
         const { data, error } = await supabase.rpc('match_articles', {
             query_embedding: embedding,
             match_ley_id: leyId || 0,
@@ -155,7 +166,66 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== GROQ: CLASIFICAR CONSULTA (MEJORADO) ==========
+// ========== BÚSQUEDA HÍBRIDA: VECTORIAL + KEYWORDS ==========
+async function buscarArticulosHibrido(pregunta, leyId = null, limite = 50) {
+    // 1. BÚSQUEDA VECTORIAL
+    let resultados = await buscarPorSimilitud(pregunta, leyId, limite);
+    console.log(`📊 Vectorial: ${resultados.length} resultados`);
+    
+    // 2. SI NO HAY RESULTADOS O SON POCOS, BUSCAR POR KEYWORDS
+    if (resultados.length < 3) {
+        console.log('🔍 Pocos resultados vectoriales. Buscando artículos clave por tema...');
+        
+        const preguntaLower = pregunta.toLowerCase();
+        let articulosClaveEncontrados = [];
+        let leyUsar = leyId;
+        
+        // Detectar tema de la pregunta
+        for (const [tema, info] of Object.entries(ARTICULOS_CLAVE)) {
+            if (preguntaLower.includes(tema) || 
+                tema.split(' ').some(palabra => preguntaLower.includes(palabra))) {
+                console.log(`🔑 Tema detectado: "${tema}"`);
+                leyUsar = info.ley;
+                
+                // Buscar cada artículo clave
+                for (const numArt of info.articulos) {
+                    const { data, error } = await supabase
+                        .from('articulos')
+                        .select('id, numero_articulo, contenido, ley_id')
+                        .eq('ley_id', parseInt(info.ley))
+                        .eq('numero_articulo', numArt)
+                        .maybeSingle();
+                    
+                    if (data && !error) {
+                        articulosClaveEncontrados.push({
+                            id: data.id,
+                            numero_articulo: data.numero_articulo,
+                            contenido: data.contenido,
+                            ley_id: data.ley_id,
+                            ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
+                            similitud: 0.9 // Alta prioridad
+                        });
+                        console.log(`✅ Artículo clave encontrado: ${numArt}`);
+                    }
+                }
+                break;
+            }
+        }
+        
+        // Combinar resultados: primero los clave, luego los vectoriales
+        if (articulosClaveEncontrados.length > 0) {
+            // Evitar duplicados
+            const idsClave = new Set(articulosClaveEncontrados.map(a => a.id));
+            const vectorialesFiltrados = resultados.filter(a => !idsClave.has(a.id));
+            resultados = [...articulosClaveEncontrados, ...vectorialesFiltrados];
+            console.log(`📊 Híbrido: ${resultados.length} resultados (${articulosClaveEncontrados.length} clave + ${vectorialesFiltrados.length} vectorial)`);
+        }
+    }
+    
+    return resultados;
+}
+
+// ========== GROQ: CLASIFICAR CONSULTA ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
     Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
@@ -218,7 +288,7 @@ async function seleccionarArticulosRelevantes(pregunta, articulos, leyId) {
     
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    if (articulos.length <= 15) {
+    if (articulos.length <= 20) {
         console.log(`📚 Solo ${articulos.length} artículos, pasando todos al modelo`);
         return articulos;
     }
@@ -359,18 +429,18 @@ app.post('/api/consultar', async (req, res) => {
         const clasificacion = await clasificarConsulta(pregunta);
         let leyId = clasificacion.ley_id;
 
-        // 2. BÚSQUEDA VECTORIAL EN LA LEY DETECTADA
+        // 2. BÚSQUEDA HÍBRIDA
         let articulosEncontrados = [];
         
         if (leyId) {
             console.log(`🔍 Buscando en ley ${leyId} (${LEY_MAP[leyId]})`);
-            articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 50);
+            articulosEncontrados = await buscarArticulosHibrido(pregunta, leyId, 50);
         }
 
         // 3. SI NO ENCUENTRA RESULTADOS, BUSCAR EN TODAS LAS LEYES
         if (articulosEncontrados.length === 0) {
             console.log('🔄 No se encontraron resultados en la ley detectada. Buscando en todas las leyes...');
-            articulosEncontrados = await buscarPorSimilitud(pregunta, null, 50);
+            articulosEncontrados = await buscarArticulosHibrido(pregunta, null, 50);
             
             if (articulosEncontrados.length > 0) {
                 leyId = articulosEncontrados[0].ley_id;
