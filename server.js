@@ -3,8 +3,6 @@ import cors from 'cors';
 import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
 import { WebSocket } from 'ws';
-
-// ========== IMPORTAR SENTENCE-TRANSFORMERS PARA EMBEDDINGS LOCALES ==========
 import { pipeline } from '@xenova/transformers';
 
 const app = express();
@@ -81,7 +79,6 @@ async function generarEmbedding(texto) {
 // ========== BÚSQUEDA VECTORIAL EN SUPABASE ==========
 async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
     try {
-        // Generar embedding de la pregunta
         const embedding = await generarEmbedding(pregunta);
         
         if (!embedding) {
@@ -89,7 +86,6 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
             return buscarPorTexto(pregunta, leyId, limite);
         }
         
-        // Búsqueda vectorial usando match_articles
         const { data, error } = await supabase.rpc('match_articles', {
             query_embedding: embedding,
             match_ley_id: leyId || 0,
@@ -102,7 +98,7 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
             return buscarPorTexto(pregunta, leyId, limite);
         }
         
-        console.log(`🔍 Búsqueda vectorial: ${data?.length || 0} resultados`);
+        console.log(`🔍 Búsqueda vectorial (ley ${leyId || 'todas'}): ${data?.length || 0} resultados`);
         
         return (data || []).map(art => ({
             id: art.id,
@@ -156,11 +152,22 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== GROQ: CLASIFICAR CONSULTA ==========
+// ========== GROQ: CLASIFICAR CONSULTA (MEJORADO) ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
     Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
     
+    CRITERIOS DE CLASIFICACIÓN:
+    - "Prescripción", "daños", "perjuicios", "responsabilidad civil", "accidente" → Código Civil (Ley 3)
+    - "Contrato", "arrendamiento", "alquiler" → Código Civil (Ley 3)
+    - "Propiedad horizontal", "condominio", "vecino" → LPH (Ley 2)
+    - "Constitución", "derechos humanos", "amparo" → CRBV (Ley 1)
+    - "Comercio", "sociedad", "empresa" → Código de Comercio (Ley 4)
+    - "Procesal", "procedimiento", "juicio" → CPC (Ley 7)
+    - "Penal", "delito", "crimen" → COPP (Ley 5) o Código Penal (Ley 6)
+    - "Arrendamiento vivienda" → Ley 8
+    - "Violencia mujer" → Ley 9
+
     Leyes disponibles:
     1: CRBV (Constitución)
     2: LPH (Ley de Propiedad Horizontal)
@@ -178,9 +185,10 @@ async function clasificarConsulta(pregunta) {
 
     Responde SOLO con JSON:
     {
-        "ley_id": número de la ley principal (o null si no aplica),
+        "ley_id": número de la ley principal,
         "articulo_num": número de artículo si se menciona específicamente (o null),
-        "tema": "descripción breve del tema legal"
+        "tema": "descripción breve del tema legal",
+        "confianza": "alta/media/baja"
     }
     `;
 
@@ -193,11 +201,11 @@ async function clasificarConsulta(pregunta) {
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación: Ley ${result.ley_id}, Artículo ${result.articulo_num || 'N/A'}, Tema: ${result.tema}`);
+        console.log(`📋 Clasificación: Ley ${result.ley_id} (${LEY_MAP[result.ley_id] || 'Desconocida'}), Confianza: ${result.confianza}, Tema: ${result.tema}`);
         return result;
     } catch (error) {
         console.error("Error en clasificación:", error);
-        return { ley_id: null, articulo_num: null, tema: null };
+        return { ley_id: null, articulo_num: null, tema: null, confianza: 'baja' };
     }
 }
 
@@ -348,13 +356,24 @@ app.post('/api/consultar', async (req, res) => {
         const clasificacion = await clasificarConsulta(pregunta);
         let leyId = clasificacion.ley_id;
 
-        // 2. BÚSQUEDA VECTORIAL CON APRENDIZAJE PROFUNDO
+        // 2. BÚSQUEDA VECTORIAL EN LA LEY DETECTADA
         let articulosEncontrados = [];
         
         if (leyId) {
+            console.log(`🔍 Buscando en ley ${leyId} (${LEY_MAP[leyId]})`);
             articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 30);
-        } else {
+        }
+
+        // 3. SI NO ENCUENTRA RESULTADOS, BUSCAR EN TODAS LAS LEYES
+        if (articulosEncontrados.length === 0) {
+            console.log('🔄 No se encontraron resultados en la ley detectada. Buscando en todas las leyes...');
             articulosEncontrados = await buscarPorSimilitud(pregunta, null, 50);
+            
+            // Si encuentra resultados, actualizar leyId
+            if (articulosEncontrados.length > 0) {
+                leyId = articulosEncontrados[0].ley_id;
+                console.log(`✅ Artículos encontrados en ${LEY_MAP[leyId]}`);
+            }
         }
 
         if (articulosEncontrados.length === 0) {
@@ -365,11 +384,11 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📚 Total artículos encontrados: ${articulosEncontrados.length}`);
 
-        // 3. SELECCIONAR ARTÍCULOS RELEVANTES CON GROQ
+        // 4. SELECCIONAR ARTÍCULOS RELEVANTES CON GROQ
         const articulosRelevantes = await seleccionarArticulosRelevantes(
             pregunta, 
             articulosEncontrados, 
-            leyId || articulosEncontrados[0]?.ley_id
+            leyId
         );
 
         if (articulosRelevantes.length === 0) {
@@ -380,14 +399,14 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📊 Artículos relevantes: ${articulosRelevantes.map(a => a.numero_articulo).join(', ')}`);
 
-        // 4. GENERAR RESPUESTA FINAL
+        // 5. GENERAR RESPUESTA FINAL
         let respuesta = await generarRespuesta(
             pregunta, 
             articulosRelevantes, 
-            leyId || articulosRelevantes[0]?.ley_id
+            leyId
         );
 
-        // 5. VALIDAR CITAS
+        // 6. VALIDAR CITAS
         const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosRelevantes);
 
         if (!citasValidas) {
@@ -395,7 +414,7 @@ app.post('/api/consultar', async (req, res) => {
             respuesta = await generarRespuesta(
                 pregunta, 
                 articulosRelevantes, 
-                leyId || articulosRelevantes[0]?.ley_id
+                leyId
             );
             
             const citasValidas2 = await verificarCitasEnRespuesta(respuesta, articulosRelevantes);
@@ -419,7 +438,6 @@ app.post('/api/consultar', async (req, res) => {
 // ========== INICIO DEL SERVIDOR ==========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
-    // Inicializar modelo de embeddings al inicio
     console.log('🚀 LexnaVe Backend iniciando...');
     await initEmbedder();
     console.log(`🚀 LexnaVe Backend activo en puerto ${PORT}`);
