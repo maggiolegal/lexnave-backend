@@ -51,18 +51,14 @@ function cargarAprendizaje() {
                     'servidumbre': { ley: 3, articulos: ['571', '572', '573', '574', '575', '576', '577'] },
                     'luz natural': { ley: 3, articulos: ['571', '572', '573', '574'] },
                     'muro': { ley: 3, articulos: ['571', '572', '573'] },
-                    'pared medianera': { ley: 3, articulos: ['571', '572'] },
                     'detención': { ley: 5, articulos: ['373', '374', '375'] },
                     'flagrancia': { ley: 5, articulos: ['373'] },
                     'prescripción': { ley: 3, articulos: ['1969', '1950', '1951', '1952'] },
                     'daños': { ley: 3, articulos: ['1185', '1190', '1969'] },
-                    'accidente': { ley: 3, articulos: ['1185', '1969'] },
+                    'letra de cambio': { ley: 4, articulos: ['410'] },
+                    'requisitos letra': { ley: 4, articulos: ['410'] },
                     'estado de excepción': { ley: 1, articulos: ['337', '338', '339'] },
-                    'amparo': { ley: 1, articulos: ['26', '27'] },
                     'propiedad horizontal': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
-                    'condominio': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
-                    'vecino': { ley: 2, articulos: ['3', '5', '8'] },
-                    'ruido': { ley: 2, articulos: ['3', '8'] }
                 },
                 correcciones: {}
             };
@@ -191,7 +187,8 @@ async function clasificarConsulta(pregunta) {
     - "Servidumbre", "luz natural", "muro" → Código Civil (Ley 3)
     - "Prescripción", "daños", "perjuicios" → Código Civil (Ley 3)
     - "Detención", "flagrancia" → COPP (Ley 5)
-    - "Propiedad horizontal", "condominio", "vecino" → LPH (Ley 2)
+    - "Letra de cambio", "requisitos" → Código de Comercio (Ley 4)
+    - "Propiedad horizontal", "condominio" → LPH (Ley 2)
     - "Constitución", "amparo", "estado de excepción" → CRBV (Ley 1)
 
     Consulta: "${pregunta}"
@@ -217,28 +214,33 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== GENERAR RESPUESTA DIRECTA CON GROQ ==========
+// ========== GENERAR RESPUESTA DIRECTA CON GROQ (PROMPT UNIVERSAL) ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
     // Preparar contexto con TODOS los artículos completos
     let contextoLegal = "";
-    const articulosMostrar = candidatos.slice(0, 30); // Mostrar hasta 30 artículos completos
+    const articulosMostrar = candidatos.slice(0, 30);
     
     for (let i = 0; i < articulosMostrar.length; i++) {
         const a = articulosMostrar[i];
-        contextoLegal += `\nArtículo ${a.numero_articulo} (similitud: ${(a.similitud || 0).toFixed(2)}):\n${a.contenido}\n`;
+        contextoLegal += `\n--- Artículo ${a.numero_articulo} (similitud: ${(a.similitud || 0).toFixed(2)}) ---\n${a.contenido}\n`;
     }
     
     const systemPrompt = `
     Eres "LexnaVe", un asistente jurídico especializado en leyes venezolanas.
 
     ⚠️ INSTRUCCIONES ESTRICTAS:
-    1. Lee TODOS los artículos del contexto legal proporcionado.
-    2. Identifica el artículo EXACTO que responde a la pregunta del usuario.
-    3. Cita el artículo TEXTUALMENTE entre comillas.
-    4. NO inventes artículos que no estén en el contexto.
-    5. Si no encuentras un artículo que responda exactamente, di: "No tengo información suficiente."
+    1. Lee la PREGUNTA del usuario y extrae las PALABRAS CLAVE.
+    2. Lee TODOS los artículos del contexto legal proporcionado.
+    3. Para CADA artículo, cuenta cuántas de esas PALABRAS CLAVE aparecen en su contenido.
+    4. Selecciona el artículo que contenga MÁS coincidencias con las palabras clave.
+    5. Cita el artículo TEXTUALMENTE entre comillas.
+    6. Si la pregunta es sobre "requisitos", busca "requisitos", "denominación", "librado", "beneficiario", "vencimiento", "firma".
+    7. Si la pregunta es sobre "luz natural", busca "luz", "muro", "construcción", "distancia", "servidumbre".
+    8. Si la pregunta es sobre "detención", busca "detención", "horas", "presentación", "juez", "flagrancia".
+    9. NO inventes artículos que no estén en el contexto.
+    10. Si no encuentras un artículo que responda, di: "No tengo información suficiente."
 
     ESTRUCTURA DE RESPUESTA:
     1. INTRODUCCIÓN (2-3 líneas)
@@ -265,7 +267,7 @@ async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
                 { role: 'user', content: promptFinal }
             ],
             model: 'llama-3.3-70b-versatile',
-            temperature: 0.2,
+            temperature: 0.1,
             max_tokens: 3000
         });
 
@@ -320,9 +322,19 @@ app.post('/api/consultar', async (req, res) => {
             });
         }
 
-        // 2. BUSCAR CANDIDATOS (TODOS LOS RELEVANTES)
+        // 2. BUSCAR CANDIDATOS
         console.log(`🔍 Buscando candidatos en ${LEY_MAP[leyId]}...`);
-        const candidatos = await buscarCandidatos(pregunta, leyId, 100);
+        let candidatos = await buscarCandidatos(pregunta, leyId, 100);
+
+        // 3. SI NO HAY CANDIDATOS, BUSCAR EN TODAS LAS LEYES
+        if (candidatos.length === 0) {
+            console.log('🔄 No se encontraron candidatos. Buscando en todas las leyes...');
+            candidatos = await buscarCandidatos(pregunta, null, 100);
+            if (candidatos.length > 0) {
+                leyId = candidatos[0].ley_id;
+                console.log(`✅ Candidatos encontrados en ${LEY_MAP[leyId]}`);
+            }
+        }
 
         if (candidatos.length === 0) {
             return res.json({
@@ -332,22 +344,29 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📊 ${candidatos.length} candidatos encontrados`);
 
-        // 3. GENERAR RESPUESTA DIRECTA CON GROQ
-        const respuesta = await generarRespuestaDirecta(pregunta, candidatos, leyId);
+        // 4. GENERAR RESPUESTA DIRECTA CON GROQ
+        let respuesta = await generarRespuestaDirecta(pregunta, candidatos, leyId);
 
-        // 4. VALIDAR CITAS
+        // 5. VALIDAR CITAS
         const citasValidas = await verificarCitasEnRespuesta(respuesta, candidatos);
 
         if (!citasValidas) {
-            console.log('⚠️ Se detectaron artículos alucinados. Regenerando...');
-            const respuesta2 = await generarRespuestaDirecta(pregunta, candidatos, leyId);
-            const citasValidas2 = await verificarCitasEnRespuesta(respuesta2, candidatos);
-            if (!citasValidas2) {
+            console.log('⚠️ Se detectaron artículos alucinados. Regenerando con más contexto...');
+            // Intentar con más candidatos
+            const masCandidatos = await buscarCandidatos(pregunta, leyId, 150);
+            if (masCandidatos.length > candidatos.length) {
+                respuesta = await generarRespuestaDirecta(pregunta, masCandidatos, leyId);
+                const citasValidas2 = await verificarCitasEnRespuesta(respuesta, masCandidatos);
+                if (!citasValidas2) {
+                    return res.json({
+                        respuesta: "⚠️ No tengo información suficiente. Te recomiendo consultar con un abogado."
+                    });
+                }
+            } else {
                 return res.json({
                     respuesta: "⚠️ No tengo información suficiente. Te recomiendo consultar con un abogado."
                 });
             }
-            return res.json({ respuesta: respuesta2 });
         }
 
         res.json({ respuesta });
