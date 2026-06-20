@@ -66,7 +66,9 @@ function safeJsonParse(rawText) {
 async function generarEmbedding(texto) {
     try {
         const model = await initEmbedder();
-        const result = await model(texto, { pooling: 'mean', normalize: true });
+        // Truncar texto para evitar problemas de tamaño
+        const textoTruncado = texto.length > 500 ? texto.substring(0, 500) : texto;
+        const result = await model(textoTruncado, { pooling: 'mean', normalize: true });
         const embedding = Array.from(result.data);
         console.log(`✅ Embedding generado: ${embedding.length} dimensiones`);
         return embedding;
@@ -76,8 +78,8 @@ async function generarEmbedding(texto) {
     }
 }
 
-// ========== BÚSQUEDA VECTORIAL EN SUPABASE ==========
-async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
+// ========== BÚSQUEDA VECTORIAL EN SUPABASE (UMBRAL BAJO) ==========
+async function buscarPorSimilitud(pregunta, leyId = null, limite = 50) {
     try {
         const embedding = await generarEmbedding(pregunta);
         
@@ -86,10 +88,11 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
             return buscarPorTexto(pregunta, leyId, limite);
         }
         
+        // Umbral más bajo (0.3) para capturar más resultados
         const { data, error } = await supabase.rpc('match_articles', {
             query_embedding: embedding,
             match_ley_id: leyId || 0,
-            match_threshold: 0.55,
+            match_threshold: 0.3,
             match_count: limite
         });
         
@@ -361,7 +364,7 @@ app.post('/api/consultar', async (req, res) => {
         
         if (leyId) {
             console.log(`🔍 Buscando en ley ${leyId} (${LEY_MAP[leyId]})`);
-            articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 30);
+            articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 50);
         }
 
         // 3. SI NO ENCUENTRA RESULTADOS, BUSCAR EN TODAS LAS LEYES
@@ -369,7 +372,6 @@ app.post('/api/consultar', async (req, res) => {
             console.log('🔄 No se encontraron resultados en la ley detectada. Buscando en todas las leyes...');
             articulosEncontrados = await buscarPorSimilitud(pregunta, null, 50);
             
-            // Si encuentra resultados, actualizar leyId
             if (articulosEncontrados.length > 0) {
                 leyId = articulosEncontrados[0].ley_id;
                 console.log(`✅ Artículos encontrados en ${LEY_MAP[leyId]}`);
