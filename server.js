@@ -48,13 +48,14 @@ function cargarAprendizaje() {
         } else {
             learningData = {
                 patrones: {},
-                correcciones: {}
+                correcciones: {},
+                estadisticas: {}
             };
             guardarAprendizaje();
         }
     } catch (e) {
         console.error('Error cargando aprendizaje:', e);
-        learningData = { patrones: {}, correcciones: {} };
+        learningData = { patrones: {}, correcciones: {}, estadisticas: {} };
     }
 }
 
@@ -68,13 +69,53 @@ function guardarAprendizaje() {
 
 function aplicarAprendizaje(pregunta) {
     const preguntaLower = pregunta.toLowerCase();
+    let mejorMatch = null;
+    let mejorPuntaje = 0;
+    
     for (const [clave, valor] of Object.entries(learningData.patrones || {})) {
         if (preguntaLower.includes(clave)) {
-            console.log(`🧠 Aprendizaje aplicado: "${clave}" → Ley ${valor.ley}, Artículos ${valor.articulos.join(', ')}`);
-            return valor;
+            const puntaje = clave.length; // Priorizar palabras clave más largas
+            if (puntaje > mejorPuntaje) {
+                mejorPuntaje = puntaje;
+                mejorMatch = valor;
+            }
         }
     }
+    
+    if (mejorMatch) {
+        console.log(`🧠 Aprendizaje aplicado: patrón con puntaje ${mejorPuntaje}`);
+        return mejorMatch;
+    }
     return null;
+}
+
+function aprenderPatron(pregunta, leyId, articulos, esCorrecto = true) {
+    if (!esCorrecto) return;
+    
+    const palabras = pregunta.toLowerCase().replace(/[¿?,.!]/g, '').split(' ');
+    const palabrasClave = palabras.filter(p => p.length > 4);
+    
+    let aprendidos = 0;
+    for (const palabra of palabrasClave) {
+        if (!learningData.patrones[palabra]) {
+            learningData.patrones[palabra] = { 
+                ley: leyId, 
+                articulos: articulos,
+                frecuencia: 1,
+                ultimo_uso: new Date().toISOString()
+            };
+            aprendidos++;
+            console.log(`🧠 Nuevo patrón aprendido: "${palabra}" → Ley ${leyId}, Artículos ${articulos.join(', ')}`);
+        } else {
+            // Actualizar frecuencia
+            learningData.patrones[palabra].frecuencia = (learningData.patrones[palabra].frecuencia || 0) + 1;
+            learningData.patrones[palabra].ultimo_uso = new Date().toISOString();
+        }
+    }
+    
+    if (aprendidos > 0) {
+        guardarAprendizaje();
+    }
 }
 
 // ========== VALIDAR RELEVANCIA ANTES DE APRENDER ==========
@@ -105,19 +146,6 @@ async function esArticuloRelevante(pregunta, articuloNumero, contenido, leyId) {
         console.error("Error validando relevancia:", error);
         return false;
     }
-}
-
-function aprenderPatron(pregunta, leyId, articulos) {
-    const palabras = pregunta.toLowerCase().split(' ');
-    const palabrasClave = palabras.filter(p => p.length > 4);
-    
-    for (const palabra of palabrasClave) {
-        if (!learningData.patrones[palabra]) {
-            learningData.patrones[palabra] = { ley: leyId, articulos: articulos };
-            console.log(`🧠 Nuevo patrón aprendido: "${palabra}" → Ley ${leyId}, Artículos ${articulos.join(', ')}`);
-        }
-    }
-    guardarAprendizaje();
 }
 
 // ========== MODELO DE EMBEDDING LOCAL ==========
@@ -199,13 +227,13 @@ async function buscarCandidatos(pregunta, leyId = null, limite = 100) {
     }
 }
 
-// ========== CLASIFICACIÓN ==========
+// ========== CLASIFICACIÓN MEJORADA ==========
 async function clasificarConsulta(pregunta) {
+    // Verificar aprendizaje primero
     const aprendizaje = aplicarAprendizaje(pregunta);
     if (aprendizaje && aprendizaje.ley) {
         return {
             ley_id: aprendizaje.ley,
-            articulo_num: null,
             tema: 'Detectado por aprendizaje',
             confianza: 'alta',
             aprendizaje: aprendizaje
@@ -215,18 +243,18 @@ async function clasificarConsulta(pregunta) {
     const prompt = `
     Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
     
+    REGLAS DE CLASIFICACIÓN:
+    - Si menciona "accidente", "choque", "daños", "perjuicios" → Código Civil (Ley 3)
+    - Si menciona "prescripción", "plazo" → Código Civil (Ley 3)
+    - Si menciona "detención", "flagrancia", "arresto" → COPP (Ley 5)
+    - Si menciona "letra de cambio", "pagare", "cheque" → Código de Comercio (Ley 4)
+    - Si menciona "vecino", "condominio", "propiedad horizontal" → LPH (Ley 2)
+    - Si menciona "amparo", "constitución" → CRBV (Ley 1)
+    - Si menciona "procedimiento", "juicio", "demanda" → CPC (Ley 7)
+    - Si menciona "arrendamiento", "alquiler" → Ley 8 o 10
+
     Leyes disponibles:
-    1: CRBV (Constitución)
-    2: LPH (Ley de Propiedad Horizontal)
-    3: CCV (Código Civil)
-    4: CCom (Código de Comercio)
-    5: COPP (Código Orgánico Procesal Penal)
-    6: CP (Código Penal)
-    7: CPC (Código de Procedimiento Civil)
-    8: Arrendamiento Vivienda
-    9: Violencia Mujer
-    10: Arrendamiento Comercial
-    11: Registros
+    1: CRBV, 2: LPH, 3: Código Civil, 4: Código de Comercio, 5: COPP, 6: Código Penal, 7: CPC, 8: Arrendamiento Vivienda, 9: Violencia Mujer, 10: Arrendamiento Comercial, 11: Registros
 
     Consulta: "${pregunta}"
 
@@ -264,12 +292,10 @@ async function generarRespuestaDirecta(pregunta, candidatos, leyId, articuloApre
     }
     
     let instruccionPrioritaria = "";
-    let articulosPrioridad = [];
     if (articuloAprendido && articuloAprendido.length > 0) {
-        articulosPrioridad = articuloAprendido;
         instruccionPrioritaria = `
 ⚠️ INSTRUCCIÓN PRIORITARIA:
-El sistema de aprendizaje ha identificado que el(los) artículo(s) ${articulosPrioridad.join(', ')} es(son) el(los) más relevante(s) para esta consulta.
+El sistema de aprendizaje ha identificado que el(los) artículo(s) ${articuloAprendido.join(', ')} es(son) el(los) más relevante(s) para esta consulta.
 DEBES priorizar estos artículos al generar la respuesta.
 `;
     }
@@ -280,7 +306,7 @@ DEBES priorizar estos artículos al generar la respuesta.
     ⚠️ INSTRUCCIONES ESTRICTAS:
     1. Lee la PREGUNTA del usuario y extrae las PALABRAS CLAVE.
     2. Lee TODOS los artículos del contexto legal proporcionado.
-    3. ${articulosPrioridad.length > 0 ? `**PRIORIZA LOS ARTÍCULOS ${articulosPrioridad.join(', ')}** que el sistema de aprendizaje ha identificado como los más relevantes.` : 'Analiza cada artículo y selecciona el que mejor responda la pregunta.'}
+    3. ${articuloAprendido && articuloAprendido.length > 0 ? `**PRIORIZA LOS ARTÍCULOS ${articuloAprendido.join(', ')}** que el sistema de aprendizaje ha identificado como los más relevantes.` : 'Analiza cada artículo y selecciona el que mejor responda la pregunta.'}
     4. Si no hay artículo prioritario, selecciona el artículo que contenga MÁS coincidencias con las palabras clave.
     5. Cita el artículo TEXTUALMENTE entre comillas.
     6. NO inventes artículos que no estén en el contexto.
@@ -359,7 +385,26 @@ async function verificarCitasEnRespuesta(respuesta, candidatos) {
     return true;
 }
 
-// ========== ENDPOINT PRINCIPAL ==========
+// ========== OBTENER TODAS LAS LEYES ==========
+async function obtenerTodasLasLeyes() {
+    try {
+        const { data, error } = await supabase
+            .from('leyes')
+            .select('id, nombre')
+            .order('id');
+        
+        if (error) {
+            console.error('Error obteniendo leyes:', error);
+            return [];
+        }
+        return data || [];
+    } catch (e) {
+        console.error('Error en obtenerTodasLasLeyes:', e);
+        return [];
+    }
+}
+
+// ========== ENDPOINT PRINCIPAL - VERSIÓN UNIVERSAL ==========
 app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     const timestamp = new Date().toISOString();
@@ -370,120 +415,92 @@ app.post('/api/consultar', async (req, res) => {
         const aprendizaje = aplicarAprendizaje(pregunta);
         let leyId = null;
         let articuloAprendido = null;
+        let respuestaFinal = null;
         
         if (aprendizaje) {
             leyId = aprendizaje.ley;
             articuloAprendido = aprendizaje.articulos || [];
+            console.log(`🧠 Usando aprendizaje: Ley ${leyId}, Artículos ${articuloAprendido.join(', ')}`);
         }
 
         // 2. CLASIFICAR (si no hay aprendizaje)
         if (!leyId) {
             const clasificacion = await clasificarConsulta(pregunta);
             leyId = clasificacion.ley_id;
+            console.log(`📋 Clasificación: Ley ${leyId}`);
         }
 
-        if (!leyId) {
-            console.log('🔄 Buscando en todas las leyes...');
-            const candidatosGlobal = await buscarCandidatos(pregunta, null, 100);
-            if (candidatosGlobal.length > 0) {
-                leyId = candidatosGlobal[0].ley_id;
-                console.log(`✅ Ley encontrada: ${LEY_MAP[leyId]}`);
-                let respuestaGlobal = await generarRespuestaDirecta(pregunta, candidatosGlobal, leyId, articuloAprendido);
-                const citasValidasGlobal = await verificarCitasEnRespuesta(respuestaGlobal, candidatosGlobal);
-                if (citasValidasGlobal) {
-                    const articulosCitados = extraerArticulosCitados(respuestaGlobal);
-                    if (articulosCitados.length > 0) {
-                        // VALIDAR RELEVANCIA ANTES DE APRENDER
-                        const primerArticulo = articulosCitados[0];
-                        const articuloEncontrado = candidatosGlobal.find(a => 
-                            a.numero_articulo.toString() === primerArticulo
-                        );
-                        if (articuloEncontrado) {
-                            const esRelevante = await esArticuloRelevante(
-                                pregunta, 
-                                primerArticulo, 
-                                articuloEncontrado.contenido,
-                                leyId
-                            );
-                            if (esRelevante) {
-                                aprenderPatron(pregunta, leyId, articulosCitados);
-                                console.log(`✅ Aprendizaje guardado: "${pregunta}" → Artículo ${primerArticulo}`);
-                            } else {
-                                console.log(`⚠️ No se aprendió: El artículo ${primerArticulo} no es relevante para la pregunta`);
-                            }
-                        }
-                    }
-                    return res.json({ respuesta: respuestaGlobal });
-                }
-            }
-            return res.json({
-                respuesta: "⚠️ No pude identificar la ley aplicable. Reformula tu pregunta o consulta con un abogado."
-            });
-        }
-
-        // 3. BUSCAR CANDIDATOS
-        console.log(`🔍 Buscando candidatos en ${LEY_MAP[leyId]}...`);
-        let candidatos = await buscarCandidatos(pregunta, leyId, 100);
-
-        if (candidatos.length === 0) {
-            console.log('🔄 No se encontraron candidatos. Buscando en todas las leyes...');
-            candidatos = await buscarCandidatos(pregunta, null, 100);
-            if (candidatos.length > 0) {
-                leyId = candidatos[0].ley_id;
-                console.log(`✅ Candidatos encontrados en ${LEY_MAP[leyId]}`);
-            }
-        }
-
-        if (candidatos.length === 0) {
-            return res.json({
-                respuesta: "⚠️ No encontré artículos relevantes. Reformula tu pregunta o consulta con un abogado."
-            });
-        }
-
-        console.log(`📊 ${candidatos.length} candidatos encontrados`);
-
-        // 4. GENERAR RESPUESTA
-        let respuesta = await generarRespuestaDirecta(pregunta, candidatos, leyId, articuloAprendido);
-
-        // 5. VALIDAR CITAS
-        const citasValidas = await verificarCitasEnRespuesta(respuesta, candidatos);
-
-        if (!citasValidas) {
-            console.log('⚠️ Se detectaron artículos alucinados. Regenerando...');
-            respuesta = await generarRespuestaDirecta(pregunta, candidatos, leyId, articuloAprendido);
+        // 3. FUNCIÓN PARA PROCESAR UNA LEY
+        async function procesarLey(idLey) {
+            console.log(`🔍 Buscando en ${LEY_MAP[idLey] || 'Ley ' + idLey}...`);
+            const candidatos = await buscarCandidatos(pregunta, idLey, 100);
             
-            const citasValidas2 = await verificarCitasEnRespuesta(respuesta, candidatos);
-            if (!citasValidas2) {
-                return res.json({
-                    respuesta: "⚠️ No tengo información suficiente. Te recomiendo consultar con un abogado."
-                });
-            }
-        }
-
-        // 6. APRENDER SOLO SI ES RELEVANTE
-        const articulosCitados = extraerArticulosCitados(respuesta);
-        if (articulosCitados.length > 0 && !aprendizaje) {
-            const primerArticulo = articulosCitados[0];
-            const articuloEncontrado = candidatos.find(a => 
-                a.numero_articulo.toString() === primerArticulo
-            );
-            if (articuloEncontrado) {
-                const esRelevante = await esArticuloRelevante(
-                    pregunta, 
-                    primerArticulo, 
-                    articuloEncontrado.contenido,
-                    leyId
+            if (candidatos.length === 0) return null;
+            
+            console.log(`📊 ${candidatos.length} candidatos encontrados`);
+            
+            // Generar respuesta con prioridad de aprendizaje
+            const respuesta = await generarRespuestaDirecta(pregunta, candidatos, idLey, articuloAprendido);
+            
+            // Validar citas
+            const citasValidas = await verificarCitasEnRespuesta(respuesta, candidatos);
+            if (!citasValidas) return null;
+            
+            // Validar relevancia del artículo citado
+            const articulosCitados = extraerArticulosCitados(respuesta);
+            if (articulosCitados.length > 0) {
+                const primerArticulo = articulosCitados[0];
+                const articuloEncontrado = candidatos.find(a => 
+                    a.numero_articulo.toString() === primerArticulo
                 );
-                if (esRelevante) {
-                    aprenderPatron(pregunta, leyId, articulosCitados);
-                    console.log(`✅ Aprendizaje guardado: "${pregunta}" → Artículo ${primerArticulo}`);
-                } else {
-                    console.log(`⚠️ No se aprendió: El artículo ${primerArticulo} no es relevante para la pregunta`);
+                if (articuloEncontrado) {
+                    const esRelevante = await esArticuloRelevante(
+                        pregunta, 
+                        primerArticulo, 
+                        articuloEncontrado.contenido,
+                        idLey
+                    );
+                    if (!esRelevante) {
+                        console.log(`⚠️ El artículo ${primerArticulo} no es relevante para esta pregunta`);
+                        return null;
+                    }
+                    
+                    // Aprender si es relevante
+                    if (!aprendizaje) {
+                        aprenderPatron(pregunta, idLey, articulosCitados, true);
+                        console.log(`✅ Aprendizaje guardado: "${pregunta}" → Artículo ${primerArticulo}`);
+                    }
                 }
             }
+            
+            return respuesta;
         }
 
-        res.json({ respuesta });
+        // 4. PROCESAR LEY DETECTADA
+        if (leyId) {
+            respuestaFinal = await procesarLey(leyId);
+        }
+
+        // 5. SI FALLA O NO HAY LEY, BUSCAR EN TODAS
+        if (!respuestaFinal) {
+            console.log('🔄 Buscando en todas las leyes...');
+            const todasLasLeyes = await obtenerTodasLasLeyes();
+            
+            for (const ley of todasLasLeyes) {
+                if (ley.id === leyId) continue; // Saltar la ya probada
+                respuestaFinal = await procesarLey(ley.id);
+                if (respuestaFinal) break;
+            }
+        }
+
+        // 6. SI AÚN NO HAY RESPUESTA
+        if (!respuestaFinal) {
+            return res.json({
+                respuesta: "⚠️ No encontré información suficiente en mi base de datos para responder tu consulta. Te recomiendo consultar con un abogado especializado."
+            });
+        }
+
+        res.json({ respuesta: respuestaFinal });
 
     } catch (error) {
         console.error(`❌ Error crítico:`, error);
@@ -491,6 +508,15 @@ app.post('/api/consultar', async (req, res) => {
             respuesta: "⚠️ Se produjo un error en el servidor. Por favor, reintente su consulta."
         });
     }
+});
+
+// ========== ENDPOINT DE ESTADÍSTICAS ==========
+app.get('/api/aprendizaje', (req, res) => {
+    res.json({
+        total_patrones: Object.keys(learningData.patrones || {}).length,
+        patrones: learningData.patrones || {},
+        estadisticas: learningData.estadisticas || {}
+    });
 });
 
 // ========== INICIO DEL SERVIDOR ==========
@@ -503,4 +529,5 @@ app.listen(PORT, async () => {
     await initEmbedder();
     console.log(`🚀 LexnaVe Backend activo en puerto ${PORT}`);
     console.log(`🧠 Sistema de aprendizaje activo con ${Object.keys(learningData.patrones || {}).length} patrones`);
+    console.log(`📚 Mapeo de ${Object.keys(LEY_MAP).length} leyes disponible`);
 });
