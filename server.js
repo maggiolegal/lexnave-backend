@@ -77,6 +77,36 @@ function aplicarAprendizaje(pregunta) {
     return null;
 }
 
+// ========== VALIDAR RELEVANCIA ANTES DE APRENDER ==========
+async function esArticuloRelevante(pregunta, articuloNumero, contenido, leyId) {
+    const leyNombre = LEY_MAP[leyId] || 'Ley';
+    const prompt = `
+    Eres un Juez experto en derecho venezolano. Evalúa si el siguiente artículo responde DIRECTAMENTE a la pregunta del usuario.
+
+    Pregunta del usuario: "${pregunta}"
+
+    Artículo ${articuloNumero} de la ${leyNombre}:
+    "${contenido.substring(0, 800)}"
+
+    Responde SOLO con "SI" si el artículo responde directamente a la pregunta, o "NO" si no es relevante.
+    `;
+
+    try {
+        const response = await groq.chat.completions.create({
+            messages: [{ role: 'user', content: prompt }],
+            model: 'llama-3.3-70b-versatile',
+            temperature: 0,
+            max_tokens: 5
+        });
+
+        const resultado = response.choices[0].message.content.trim().toUpperCase();
+        return resultado === 'SI';
+    } catch (error) {
+        console.error("Error validando relevancia:", error);
+        return false;
+    }
+}
+
 function aprenderPatron(pregunta, leyId, articulos) {
     const palabras = pregunta.toLowerCase().split(' ');
     const palabrasClave = palabras.filter(p => p.length > 4);
@@ -171,7 +201,6 @@ async function buscarCandidatos(pregunta, leyId = null, limite = 100) {
 
 // ========== CLASIFICACIÓN ==========
 async function clasificarConsulta(pregunta) {
-    // Verificar aprendizaje primero
     const aprendizaje = aplicarAprendizaje(pregunta);
     if (aprendizaje && aprendizaje.ley) {
         return {
@@ -185,8 +214,6 @@ async function clasificarConsulta(pregunta) {
     
     const prompt = `
     Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
-    
-    Analiza la pregunta y determina a qué ley pertenece.
     
     Leyes disponibles:
     1: CRBV (Constitución)
@@ -204,7 +231,7 @@ async function clasificarConsulta(pregunta) {
     Consulta: "${pregunta}"
 
     Responde SOLO con JSON:
-    {"ley_id": número, "articulo_num": null, "tema": "descripción", "confianza": "alta/media/baja"}
+    {"ley_id": número, "tema": "descripción", "confianza": "alta/media/baja"}
     `;
 
     try {
@@ -224,11 +251,10 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== GENERAR RESPUESTA DIRECTA CON GROQ (UNIVERSAL) ==========
+// ========== GENERAR RESPUESTA DIRECTA ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId, articuloAprendido = null) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    // Preparar contexto con TODOS los artículos completos
     let contextoLegal = "";
     const articulosMostrar = candidatos.slice(0, 30);
     
@@ -237,7 +263,6 @@ async function generarRespuestaDirecta(pregunta, candidatos, leyId, articuloApre
         contextoLegal += `\n--- Artículo ${a.numero_articulo} (similitud: ${(a.similitud || 0).toFixed(2)}) ---\n${a.contenido}\n`;
     }
     
-    // Construir instrucción prioritaria si hay aprendizaje
     let instruccionPrioritaria = "";
     let articulosPrioridad = [];
     if (articuloAprendido && articuloAprendido.length > 0) {
@@ -272,7 +297,7 @@ DEBES priorizar estos artículos al generar la respuesta.
     `;
 
     const promptFinal = `
-    CONTEXTO LEGAL (TODOS los artículos de ${leyNombre} relevantes a la consulta):
+    CONTEXTO LEGAL:
     ${contextoLegal}
 
     CONSULTA DEL USUARIO:
@@ -297,6 +322,14 @@ DEBES priorizar estos artículos al generar la respuesta.
         console.error("Error generando respuesta:", error);
         return "⚠️ Se produjo un error al generar la respuesta. Por favor, intenta de nuevo.";
     }
+}
+
+// ========== EXTRAER ARTÍCULOS CITADOS ==========
+function extraerArticulosCitados(respuesta) {
+    const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
+    const matches = respuesta.matchAll(regex);
+    const articulos = [...new Set([...matches].map(m => m[1]))];
+    return articulos;
 }
 
 // ========== VALIDACIÓN DE CITAS ==========
@@ -326,7 +359,7 @@ async function verificarCitasEnRespuesta(respuesta, candidatos) {
     return true;
 }
 
-// ========== ENDPOINT PRINCIPAL (UNIVERSAL) ==========
+// ========== ENDPOINT PRINCIPAL ==========
 app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     const timestamp = new Date().toISOString();
@@ -350,20 +383,35 @@ app.post('/api/consultar', async (req, res) => {
         }
 
         if (!leyId) {
-            // Intentar buscar en todas las leyes
             console.log('🔄 Buscando en todas las leyes...');
             const candidatosGlobal = await buscarCandidatos(pregunta, null, 100);
             if (candidatosGlobal.length > 0) {
                 leyId = candidatosGlobal[0].ley_id;
                 console.log(`✅ Ley encontrada: ${LEY_MAP[leyId]}`);
-                // Generar respuesta con los candidatos globales
                 let respuestaGlobal = await generarRespuestaDirecta(pregunta, candidatosGlobal, leyId, articuloAprendido);
                 const citasValidasGlobal = await verificarCitasEnRespuesta(respuestaGlobal, candidatosGlobal);
                 if (citasValidasGlobal) {
-                    // Aprender de la respuesta
                     const articulosCitados = extraerArticulosCitados(respuestaGlobal);
                     if (articulosCitados.length > 0) {
-                        aprenderPatron(pregunta, leyId, articulosCitados);
+                        // VALIDAR RELEVANCIA ANTES DE APRENDER
+                        const primerArticulo = articulosCitados[0];
+                        const articuloEncontrado = candidatosGlobal.find(a => 
+                            a.numero_articulo.toString() === primerArticulo
+                        );
+                        if (articuloEncontrado) {
+                            const esRelevante = await esArticuloRelevante(
+                                pregunta, 
+                                primerArticulo, 
+                                articuloEncontrado.contenido,
+                                leyId
+                            );
+                            if (esRelevante) {
+                                aprenderPatron(pregunta, leyId, articulosCitados);
+                                console.log(`✅ Aprendizaje guardado: "${pregunta}" → Artículo ${primerArticulo}`);
+                            } else {
+                                console.log(`⚠️ No se aprendió: El artículo ${primerArticulo} no es relevante para la pregunta`);
+                            }
+                        }
                     }
                     return res.json({ respuesta: respuestaGlobal });
                 }
@@ -377,7 +425,6 @@ app.post('/api/consultar', async (req, res) => {
         console.log(`🔍 Buscando candidatos en ${LEY_MAP[leyId]}...`);
         let candidatos = await buscarCandidatos(pregunta, leyId, 100);
 
-        // 4. SI NO HAY CANDIDATOS, BUSCAR EN TODAS LAS LEYES
         if (candidatos.length === 0) {
             console.log('🔄 No se encontraron candidatos. Buscando en todas las leyes...');
             candidatos = await buscarCandidatos(pregunta, null, 100);
@@ -395,10 +442,10 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📊 ${candidatos.length} candidatos encontrados`);
 
-        // 5. GENERAR RESPUESTA DIRECTA CON GROQ (con prioridad de aprendizaje)
+        // 4. GENERAR RESPUESTA
         let respuesta = await generarRespuestaDirecta(pregunta, candidatos, leyId, articuloAprendido);
 
-        // 6. VALIDAR CITAS
+        // 5. VALIDAR CITAS
         const citasValidas = await verificarCitasEnRespuesta(respuesta, candidatos);
 
         if (!citasValidas) {
@@ -413,10 +460,27 @@ app.post('/api/consultar', async (req, res) => {
             }
         }
 
-        // 7. APRENDER DE LA RESPUESTA
+        // 6. APRENDER SOLO SI ES RELEVANTE
         const articulosCitados = extraerArticulosCitados(respuesta);
         if (articulosCitados.length > 0 && !aprendizaje) {
-            aprenderPatron(pregunta, leyId, articulosCitados);
+            const primerArticulo = articulosCitados[0];
+            const articuloEncontrado = candidatos.find(a => 
+                a.numero_articulo.toString() === primerArticulo
+            );
+            if (articuloEncontrado) {
+                const esRelevante = await esArticuloRelevante(
+                    pregunta, 
+                    primerArticulo, 
+                    articuloEncontrado.contenido,
+                    leyId
+                );
+                if (esRelevante) {
+                    aprenderPatron(pregunta, leyId, articulosCitados);
+                    console.log(`✅ Aprendizaje guardado: "${pregunta}" → Artículo ${primerArticulo}`);
+                } else {
+                    console.log(`⚠️ No se aprendió: El artículo ${primerArticulo} no es relevante para la pregunta`);
+                }
+            }
         }
 
         res.json({ respuesta });
@@ -428,14 +492,6 @@ app.post('/api/consultar', async (req, res) => {
         });
     }
 });
-
-// ========== FUNCIÓN AUXILIAR PARA EXTRAER ARTÍCULOS CITADOS ==========
-function extraerArticulosCitados(respuesta) {
-    const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
-    const matches = respuesta.matchAll(regex);
-    const articulos = [...new Set([...matches].map(m => m[1]))];
-    return articulos;
-}
 
 // ========== INICIO DEL SERVIDOR ==========
 const PORT = process.env.PORT || 10000;
