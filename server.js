@@ -47,19 +47,7 @@ function cargarAprendizaje() {
             console.log(`📚 Aprendizaje cargado: ${Object.keys(learningData.patrones || {}).length} patrones`);
         } else {
             learningData = {
-                patrones: {
-                    'servidumbre': { ley: 3, articulos: ['571', '572', '573', '574', '575', '576', '577'] },
-                    'luz natural': { ley: 3, articulos: ['571', '572', '573', '574'] },
-                    'muro': { ley: 3, articulos: ['571', '572', '573'] },
-                    'detención': { ley: 5, articulos: ['373', '374', '375'] },
-                    'flagrancia': { ley: 5, articulos: ['373'] },
-                    'prescripción': { ley: 3, articulos: ['1969', '1950', '1951', '1952'] },
-                    'daños': { ley: 3, articulos: ['1185', '1190', '1969'] },
-                    'letra de cambio': { ley: 4, articulos: ['410'] },
-                    'requisitos letra': { ley: 4, articulos: ['410'] },
-                    'estado de excepción': { ley: 1, articulos: ['337', '338', '339'] },
-                    'propiedad horizontal': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
-                },
+                patrones: {},
                 correcciones: {}
             };
             guardarAprendizaje();
@@ -87,6 +75,19 @@ function aplicarAprendizaje(pregunta) {
         }
     }
     return null;
+}
+
+function aprenderPatron(pregunta, leyId, articulos) {
+    const palabras = pregunta.toLowerCase().split(' ');
+    const palabrasClave = palabras.filter(p => p.length > 4);
+    
+    for (const palabra of palabrasClave) {
+        if (!learningData.patrones[palabra]) {
+            learningData.patrones[palabra] = { ley: leyId, articulos: articulos };
+            console.log(`🧠 Nuevo patrón aprendido: "${palabra}" → Ley ${leyId}, Artículos ${articulos.join(', ')}`);
+        }
+    }
+    guardarAprendizaje();
 }
 
 // ========== MODELO DE EMBEDDING LOCAL ==========
@@ -170,26 +171,35 @@ async function buscarCandidatos(pregunta, leyId = null, limite = 100) {
 
 // ========== CLASIFICACIÓN ==========
 async function clasificarConsulta(pregunta) {
+    // Verificar aprendizaje primero
     const aprendizaje = aplicarAprendizaje(pregunta);
     if (aprendizaje && aprendizaje.ley) {
         return {
             ley_id: aprendizaje.ley,
             articulo_num: null,
             tema: 'Detectado por aprendizaje',
-            confianza: 'alta'
+            confianza: 'alta',
+            aprendizaje: aprendizaje
         };
     }
     
     const prompt = `
     Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
     
-    CRITERIOS:
-    - "Servidumbre", "luz natural", "muro" → Código Civil (Ley 3)
-    - "Prescripción", "daños", "perjuicios" → Código Civil (Ley 3)
-    - "Detención", "flagrancia" → COPP (Ley 5)
-    - "Letra de cambio", "requisitos" → Código de Comercio (Ley 4)
-    - "Propiedad horizontal", "condominio" → LPH (Ley 2)
-    - "Constitución", "amparo", "estado de excepción" → CRBV (Ley 1)
+    Analiza la pregunta y determina a qué ley pertenece.
+    
+    Leyes disponibles:
+    1: CRBV (Constitución)
+    2: LPH (Ley de Propiedad Horizontal)
+    3: CCV (Código Civil)
+    4: CCom (Código de Comercio)
+    5: COPP (Código Orgánico Procesal Penal)
+    6: CP (Código Penal)
+    7: CPC (Código de Procedimiento Civil)
+    8: Arrendamiento Vivienda
+    9: Violencia Mujer
+    10: Arrendamiento Comercial
+    11: Registros
 
     Consulta: "${pregunta}"
 
@@ -214,8 +224,8 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== GENERAR RESPUESTA DIRECTA CON GROQ (PROMPT UNIVERSAL) ==========
-async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
+// ========== GENERAR RESPUESTA DIRECTA CON GROQ (UNIVERSAL) ==========
+async function generarRespuestaDirecta(pregunta, candidatos, leyId, articuloAprendido = null) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
     // Preparar contexto con TODOS los artículos completos
@@ -227,20 +237,31 @@ async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
         contextoLegal += `\n--- Artículo ${a.numero_articulo} (similitud: ${(a.similitud || 0).toFixed(2)}) ---\n${a.contenido}\n`;
     }
     
+    // Construir instrucción prioritaria si hay aprendizaje
+    let instruccionPrioritaria = "";
+    let articulosPrioridad = [];
+    if (articuloAprendido && articuloAprendido.length > 0) {
+        articulosPrioridad = articuloAprendido;
+        instruccionPrioritaria = `
+⚠️ INSTRUCCIÓN PRIORITARIA:
+El sistema de aprendizaje ha identificado que el(los) artículo(s) ${articulosPrioridad.join(', ')} es(son) el(los) más relevante(s) para esta consulta.
+DEBES priorizar estos artículos al generar la respuesta.
+`;
+    }
+    
     const systemPrompt = `
     Eres "LexnaVe", un asistente jurídico especializado en leyes venezolanas.
 
     ⚠️ INSTRUCCIONES ESTRICTAS:
     1. Lee la PREGUNTA del usuario y extrae las PALABRAS CLAVE.
     2. Lee TODOS los artículos del contexto legal proporcionado.
-    3. Para CADA artículo, cuenta cuántas de esas PALABRAS CLAVE aparecen en su contenido.
-    4. Selecciona el artículo que contenga MÁS coincidencias con las palabras clave.
+    3. ${articulosPrioridad.length > 0 ? `**PRIORIZA LOS ARTÍCULOS ${articulosPrioridad.join(', ')}** que el sistema de aprendizaje ha identificado como los más relevantes.` : 'Analiza cada artículo y selecciona el que mejor responda la pregunta.'}
+    4. Si no hay artículo prioritario, selecciona el artículo que contenga MÁS coincidencias con las palabras clave.
     5. Cita el artículo TEXTUALMENTE entre comillas.
-    6. Si la pregunta es sobre "requisitos", busca "requisitos", "denominación", "librado", "beneficiario", "vencimiento", "firma".
-    7. Si la pregunta es sobre "luz natural", busca "luz", "muro", "construcción", "distancia", "servidumbre".
-    8. Si la pregunta es sobre "detención", busca "detención", "horas", "presentación", "juez", "flagrancia".
-    9. NO inventes artículos que no estén en el contexto.
-    10. Si no encuentras un artículo que responda, di: "No tengo información suficiente."
+    6. NO inventes artículos que no estén en el contexto.
+    7. Si no encuentras un artículo que responda, di: "No tengo información suficiente."
+
+    ${instruccionPrioritaria}
 
     ESTRUCTURA DE RESPUESTA:
     1. INTRODUCCIÓN (2-3 líneas)
@@ -305,28 +326,58 @@ async function verificarCitasEnRespuesta(respuesta, candidatos) {
     return true;
 }
 
-// ========== ENDPOINT PRINCIPAL ==========
+// ========== ENDPOINT PRINCIPAL (UNIVERSAL) ==========
 app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     const timestamp = new Date().toISOString();
     console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
 
     try {
-        // 1. CLASIFICAR
-        const clasificacion = await clasificarConsulta(pregunta);
-        let leyId = clasificacion.ley_id;
+        // 1. VERIFICAR APRENDIZAJE
+        const aprendizaje = aplicarAprendizaje(pregunta);
+        let leyId = null;
+        let articuloAprendido = null;
+        
+        if (aprendizaje) {
+            leyId = aprendizaje.ley;
+            articuloAprendido = aprendizaje.articulos || [];
+        }
+
+        // 2. CLASIFICAR (si no hay aprendizaje)
+        if (!leyId) {
+            const clasificacion = await clasificarConsulta(pregunta);
+            leyId = clasificacion.ley_id;
+        }
 
         if (!leyId) {
+            // Intentar buscar en todas las leyes
+            console.log('🔄 Buscando en todas las leyes...');
+            const candidatosGlobal = await buscarCandidatos(pregunta, null, 100);
+            if (candidatosGlobal.length > 0) {
+                leyId = candidatosGlobal[0].ley_id;
+                console.log(`✅ Ley encontrada: ${LEY_MAP[leyId]}`);
+                // Generar respuesta con los candidatos globales
+                let respuestaGlobal = await generarRespuestaDirecta(pregunta, candidatosGlobal, leyId, articuloAprendido);
+                const citasValidasGlobal = await verificarCitasEnRespuesta(respuestaGlobal, candidatosGlobal);
+                if (citasValidasGlobal) {
+                    // Aprender de la respuesta
+                    const articulosCitados = extraerArticulosCitados(respuestaGlobal);
+                    if (articulosCitados.length > 0) {
+                        aprenderPatron(pregunta, leyId, articulosCitados);
+                    }
+                    return res.json({ respuesta: respuestaGlobal });
+                }
+            }
             return res.json({
                 respuesta: "⚠️ No pude identificar la ley aplicable. Reformula tu pregunta o consulta con un abogado."
             });
         }
 
-        // 2. BUSCAR CANDIDATOS
+        // 3. BUSCAR CANDIDATOS
         console.log(`🔍 Buscando candidatos en ${LEY_MAP[leyId]}...`);
         let candidatos = await buscarCandidatos(pregunta, leyId, 100);
 
-        // 3. SI NO HAY CANDIDATOS, BUSCAR EN TODAS LAS LEYES
+        // 4. SI NO HAY CANDIDATOS, BUSCAR EN TODAS LAS LEYES
         if (candidatos.length === 0) {
             console.log('🔄 No se encontraron candidatos. Buscando en todas las leyes...');
             candidatos = await buscarCandidatos(pregunta, null, 100);
@@ -344,29 +395,28 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📊 ${candidatos.length} candidatos encontrados`);
 
-        // 4. GENERAR RESPUESTA DIRECTA CON GROQ
-        let respuesta = await generarRespuestaDirecta(pregunta, candidatos, leyId);
+        // 5. GENERAR RESPUESTA DIRECTA CON GROQ (con prioridad de aprendizaje)
+        let respuesta = await generarRespuestaDirecta(pregunta, candidatos, leyId, articuloAprendido);
 
-        // 5. VALIDAR CITAS
+        // 6. VALIDAR CITAS
         const citasValidas = await verificarCitasEnRespuesta(respuesta, candidatos);
 
         if (!citasValidas) {
-            console.log('⚠️ Se detectaron artículos alucinados. Regenerando con más contexto...');
-            // Intentar con más candidatos
-            const masCandidatos = await buscarCandidatos(pregunta, leyId, 150);
-            if (masCandidatos.length > candidatos.length) {
-                respuesta = await generarRespuestaDirecta(pregunta, masCandidatos, leyId);
-                const citasValidas2 = await verificarCitasEnRespuesta(respuesta, masCandidatos);
-                if (!citasValidas2) {
-                    return res.json({
-                        respuesta: "⚠️ No tengo información suficiente. Te recomiendo consultar con un abogado."
-                    });
-                }
-            } else {
+            console.log('⚠️ Se detectaron artículos alucinados. Regenerando...');
+            respuesta = await generarRespuestaDirecta(pregunta, candidatos, leyId, articuloAprendido);
+            
+            const citasValidas2 = await verificarCitasEnRespuesta(respuesta, candidatos);
+            if (!citasValidas2) {
                 return res.json({
                     respuesta: "⚠️ No tengo información suficiente. Te recomiendo consultar con un abogado."
                 });
             }
+        }
+
+        // 7. APRENDER DE LA RESPUESTA
+        const articulosCitados = extraerArticulosCitados(respuesta);
+        if (articulosCitados.length > 0 && !aprendizaje) {
+            aprenderPatron(pregunta, leyId, articulosCitados);
         }
 
         res.json({ respuesta });
@@ -378,6 +428,14 @@ app.post('/api/consultar', async (req, res) => {
         });
     }
 });
+
+// ========== FUNCIÓN AUXILIAR PARA EXTRAER ARTÍCULOS CITADOS ==========
+function extraerArticulosCitados(respuesta) {
+    const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
+    const matches = respuesta.matchAll(regex);
+    const articulos = [...new Set([...matches].map(m => m[1]))];
+    return articulos;
+}
 
 // ========== INICIO DEL SERVIDOR ==========
 const PORT = process.env.PORT || 10000;
