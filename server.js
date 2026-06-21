@@ -4,8 +4,6 @@ import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
 import { WebSocket } from 'ws';
 import { pipeline } from '@xenova/transformers';
-import fs from 'fs';
-import path from 'path';
 
 const app = express();
 app.use(cors());
@@ -35,157 +33,27 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
-// ========== SISTEMA DE APRENDIZAJE ==========
-const LEARNING_FILE = path.join(process.cwd(), 'learning_data.json');
-let learningData = {};
-
-// ========== PATRONES INICIALES (FORZADOS) ==========
-const PATRONES_INICIALES = {
-    'accidente': { ley: 3, articulos: ['1185'] },
-    'choque': { ley: 3, articulos: ['1185'] },
-    'daños': { ley: 3, articulos: ['1185'] },
-    'perjuicios': { ley: 3, articulos: ['1185'] },
-    'responsabilidad civil': { ley: 3, articulos: ['1185'] },
-    'letra de cambio': { ley: 4, articulos: ['410'] },
-    'requisitos letra': { ley: 4, articulos: ['410'] },
-    'detención': { ley: 5, articulos: ['373'] },
-    'flagrancia': { ley: 5, articulos: ['373'] },
-    'presentación juez': { ley: 5, articulos: ['373'] },
-    'luz natural': { ley: 3, articulos: ['571', '572', '573', '574'] },
-    'muro': { ley: 3, articulos: ['571', '572', '573'] },
+// ========== ARTÍCULOS CLAVE POR TEMA ==========
+const ARTICULOS_CLAVE = {
+    'prescripcion': { ley: 3, articulos: ['1969', '1950', '1951', '1952'] },
+    'daños y perjuicios': { ley: 3, articulos: ['1185', '1190', '1969'] },
+    'accidente transito': { ley: 3, articulos: ['1185', '1969'] },
     'servidumbre': { ley: 3, articulos: ['571', '572', '573', '574', '575', '576', '577'] },
-    'prescripción': { ley: 3, articulos: ['1969'] },
-    'plazo prescripción': { ley: 3, articulos: ['1969'] },
-    'estado de excepción': { ley: 1, articulos: ['337', '338', '339'] },
-    'amparo': { ley: 1, articulos: ['26', '27'] },
+    'flagrancia': { ley: 5, articulos: ['373'] },
     'propiedad horizontal': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
-    'condominio': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
-    'vecino': { ley: 2, articulos: ['3', '5', '8'] },
-    'ruido': { ley: 2, articulos: ['3', '8'] }
+    'amparo': { ley: 1, articulos: ['26', '27', '49'] },
+    'derecho propiedad': { ley: 1, articulos: ['115'] },
+    'vias de hecho': { ley: 3, articulos: ['548'] }
 };
 
-function cargarAprendizaje() {
-    try {
-        if (fs.existsSync(LEARNING_FILE)) {
-            const data = fs.readFileSync(LEARNING_FILE, 'utf8');
-            learningData = JSON.parse(data);
-            console.log(`📚 Aprendizaje cargado: ${Object.keys(learningData.patrones || {}).length} patrones`);
-        } else {
-            learningData = {
-                patrones: { ...PATRONES_INICIALES },
-                correcciones: {},
-                estadisticas: {}
-            };
-            guardarAprendizaje();
-            console.log(`✅ Patrones iniciales forzados: ${Object.keys(PATRONES_INICIALES).length}`);
-        }
-    } catch (e) {
-        console.error('Error cargando aprendizaje:', e);
-        learningData = { patrones: { ...PATRONES_INICIALES }, correcciones: {}, estadisticas: {} };
-    }
-}
-
-function guardarAprendizaje() {
-    try {
-        fs.writeFileSync(LEARNING_FILE, JSON.stringify(learningData, null, 2));
-    } catch (e) {
-        console.error('Error guardando aprendizaje:', e);
-    }
-}
-
-function aplicarAprendizaje(pregunta) {
-    const preguntaLower = pregunta.toLowerCase();
-    let mejorMatch = null;
-    let mejorPuntaje = 0;
-    
-    for (const [clave, valor] of Object.entries(learningData.patrones || {})) {
-        if (preguntaLower.includes(clave)) {
-            const puntaje = clave.length;
-            if (puntaje > mejorPuntaje) {
-                mejorPuntaje = puntaje;
-                mejorMatch = valor;
-            }
-        }
-    }
-    
-    if (mejorMatch) {
-        console.log(`🧠 Aprendizaje aplicado: patrón con puntaje ${mejorPuntaje}`);
-        return mejorMatch;
-    }
-    return null;
-}
-
-function aprenderPatron(pregunta, leyId, articulos, esCorrecto = true) {
-    if (!esCorrecto) return;
-    
-    const palabras = pregunta.toLowerCase().replace(/[¿?,.!]/g, '').split(' ');
-    const palabrasClave = palabras.filter(p => p.length > 4);
-    
-    let aprendidos = 0;
-    for (const palabra of palabrasClave) {
-        if (!learningData.patrones[palabra]) {
-            learningData.patrones[palabra] = { 
-                ley: leyId, 
-                articulos: articulos,
-                frecuencia: 1,
-                ultimo_uso: new Date().toISOString()
-            };
-            aprendidos++;
-            console.log(`🧠 Nuevo patrón aprendido: "${palabra}" → Ley ${leyId}, Artículos ${articulos.join(', ')}`);
-        } else {
-            learningData.patrones[palabra].frecuencia = (learningData.patrones[palabra].frecuencia || 0) + 1;
-            learningData.patrones[palabra].ultimo_uso = new Date().toISOString();
-        }
-    }
-    
-    if (aprendidos > 0) {
-        guardarAprendizaje();
-    }
-}
-
-// ========== VALIDAR RELEVANCIA ==========
-async function esArticuloRelevante(pregunta, articuloNumero, contenido, leyId) {
-    const leyNombre = LEY_MAP[leyId] || 'Ley';
-    const prompt = `
-    Evalúa si el siguiente artículo responde DIRECTAMENTE a la pregunta.
-    Responde SOLO "SI" o "NO".
-
-    Pregunta: "${pregunta}"
-    Artículo ${articuloNumero} (${leyNombre}): "${contenido.substring(0, 300)}"
-
-    Respuesta:`;
-
-    try {
-        const response = await groq.chat.completions.create({
-            messages: [{ role: 'user', content: prompt }],
-            model: 'llama-3.3-70b-versatile',
-            temperature: 0,
-            max_tokens: 5
-        });
-        return response.choices[0].message.content.trim().toUpperCase() === 'SI';
-    } catch (error) {
-        console.error("Error validando:", error);
-        return false;
-    }
-}
-
-// ========== MODELO DE EMBEDDING ==========
+// ========== MODELO DE EMBEDDING LOCAL ==========
 let embedder = null;
 
 async function initEmbedder() {
     if (!embedder) {
-        console.log('🔄 Cargando modelo de embeddings (Supabase/gte-small)...');
-        try {
-            // Intentar cargar el modelo más ligero
-            embedder = await pipeline('feature-extraction', 'Supabase/gte-small', {
-                device: 'wasm', // Usar wasm para evitar problemas con onnxruntime-node
-            });
-            console.log('✅ Modelo de embeddings cargado correctamente');
-        } catch (error) {
-            console.error('❌ Error cargando modelo Supabase/gte-small:', error.message);
-            console.log('⚠️ Intentando con fallback a búsqueda por palabras clave...');
-            embedder = null;
-        }
+        console.log('🔄 Cargando modelo de embeddings...');
+        embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+        console.log('✅ Modelo de embeddings cargado');
     }
     return embedder;
 }
@@ -200,107 +68,201 @@ function safeJsonParse(rawText) {
             try {
                 return JSON.parse(jsonMatch[0].trim());
             } catch (innerError) {
-                throw new Error(`Error parseando JSON: ${innerError.message}`);
+                throw new Error(`Imposible parsear JSON: ${innerError.message}`);
             }
         }
         throw e;
     }
 }
 
-// ========== GENERAR EMBEDDING ==========
+// ========== GENERAR EMBEDDING DE LA PREGUNTA ==========
 async function generarEmbedding(texto) {
-    if (!embedder) {
-        console.log('⚠️ Embedder no disponible, usando palabras clave');
-        return null;
-    }
-    
     try {
+        const model = await initEmbedder();
         const textoTruncado = texto.length > 500 ? texto.substring(0, 500) : texto;
-        const result = await embedder(textoTruncado, { pooling: 'mean', normalize: true });
-        return Array.from(result.data);
+        const result = await model(textoTruncado, { pooling: 'mean', normalize: true });
+        const embedding = Array.from(result.data);
+        console.log(`✅ Embedding generado: ${embedding.length} dimensiones`);
+        return embedding;
     } catch (error) {
         console.error('❌ Error generando embedding:', error.message);
         return null;
     }
 }
 
-// ========== BÚSQUEDA HÍBRIDA ==========
-async function buscarCandidatos(pregunta, leyId = null, limite = 50) {
-    let resultados = [];
-    
-    // 1. BÚSQUEDA POR PALABRAS CLAVE (artículos exactos)
-    const numerosMencionados = pregunta.match(/\b\d{1,4}\b/g) || [];
-    for (const num of numerosMencionados) {
-        const { data } = await supabase
-            .from('articulos')
-            .select('id, numero_articulo, contenido, ley_id')
-            .eq('ley_id', leyId || 0)
-            .eq('numero_articulo', num)
-            .maybeSingle();
-        if (data) {
-            resultados.push({
-                id: data.id,
-                numero_articulo: data.numero_articulo,
-                contenido: data.contenido,
-                ley_id: data.ley_id,
-                ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
-                similitud: 1.0
-            });
-        }
-    }
-    
-    // 2. BÚSQUEDA SEMÁNTICA (embeddings) - solo si embedder está disponible
-    if (embedder) {
+// ========== BÚSQUEDA VECTORIAL EN SUPABASE ==========
+async function buscarPorSimilitud(pregunta, leyId = null, limite = 50) {
+    try {
         const embedding = await generarEmbedding(pregunta);
-        if (embedding) {
-            try {
-                const { data } = await supabase.rpc('match_articles', {
-                    query_embedding: embedding,
-                    match_ley_id: leyId || 0,
-                    match_threshold: 0.1,
-                    match_count: limite
-                });
-                
-                if (data) {
-                    const idsExistentes = new Set(resultados.map(r => r.id));
-                    for (const art of data) {
-                        if (!idsExistentes.has(art.id)) {
-                            resultados.push({
-                                id: art.id,
-                                numero_articulo: art.numero_articulo,
-                                contenido: art.contenido,
-                                ley_id: art.ley_id,
-                                ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
-                                similitud: art.similarity || 0
-                            });
-                            idsExistentes.add(art.id);
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error('❌ Error en búsqueda semántica:', error.message);
-            }
+        
+        if (!embedding) {
+            console.log('📝 Embedding no disponible, usando búsqueda por texto (fallback)');
+            return buscarPorTexto(pregunta, leyId, limite);
         }
+        
+        const { data, error } = await supabase.rpc('match_articles', {
+            query_embedding: embedding,
+            match_ley_id: leyId || 0,
+            match_threshold: 0.3,
+            match_count: limite
+        });
+        
+        if (error) {
+            console.error('❌ Error en búsqueda vectorial:', error);
+            return buscarPorTexto(pregunta, leyId, limite);
+        }
+        
+        console.log(`🔍 Búsqueda vectorial (ley ${leyId || 'todas'}): ${data?.length || 0} resultados`);
+        
+        return (data || []).map(art => ({
+            id: art.id,
+            numero_articulo: art.numero_articulo,
+            contenido: art.contenido,
+            ley_id: art.ley_id,
+            ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
+            similitud: art.similarity || 0
+        }));
+        
+    } catch (e) {
+        console.error('❌ Error en búsqueda vectorial:', e.message);
+        return buscarPorTexto(pregunta, leyId, limite);
     }
-    
-    console.log(`🔍 Candidatos encontrados: ${resultados.length}`);
-    return resultados.slice(0, limite);
 }
 
-// ========== CLASIFICACIÓN ==========
-async function clasificarConsulta(pregunta) {
-    const aprendizaje = aplicarAprendizaje(pregunta);
-    if (aprendizaje && aprendizaje.ley) {
-        return { ley_id: aprendizaje.ley, confianza: 'alta', aprendizaje: aprendizaje };
+// ========== BÚSQUEDA POR TEXTO (FALLBACK) ==========
+async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
+    try {
+        const query = supabase
+            .from('articulos')
+            .select('id, numero_articulo, contenido, ley_id');
+        
+        if (leyId) {
+            query.eq('ley_id', parseInt(leyId));
+        }
+        
+        query.limit(limite);
+        
+        const { data, error } = await query.execute();
+        
+        if (error) {
+            console.error('❌ Error en búsqueda por texto:', error);
+            return [];
+        }
+        
+        console.log(`📝 Búsqueda por texto: ${data?.length || 0} resultados`);
+        
+        return (data || []).map(art => ({
+            id: art.id,
+            numero_articulo: art.numero_articulo,
+            contenido: art.contenido,
+            ley_id: art.ley_id,
+            ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
+            similitud: 0
+        }));
+        
+    } catch (e) {
+        console.error('❌ Error en búsqueda por texto:', e.message);
+        return [];
+    }
+}
+
+// ========== BÚSQUEDA HÍBRIDA: VECTORIAL + KEYWORDS ==========
+async function buscarArticulosHibrido(pregunta, leyId = null, limite = 50) {
+    // 1. BÚSQUEDA VECTORIAL
+    let resultados = await buscarPorSimilitud(pregunta, leyId, limite);
+    console.log(`📊 Vectorial: ${resultados.length} resultados`);
+    
+    // 2. SI NO HAY RESULTADOS O SON POCOS, BUSCAR POR KEYWORDS
+    if (resultados.length < 3) {
+        console.log('🔍 Pocos resultados vectoriales. Buscando artículos clave por tema...');
+        
+        const preguntaLower = pregunta.toLowerCase();
+        let articulosClaveEncontrados = [];
+        let leyUsar = leyId;
+        
+        // Detectar tema de la pregunta
+        for (const [tema, info] of Object.entries(ARTICULOS_CLAVE)) {
+            if (preguntaLower.includes(tema) || 
+                tema.split(' ').some(palabra => preguntaLower.includes(palabra))) {
+                console.log(`🔑 Tema detectado: "${tema}"`);
+                leyUsar = info.ley;
+                
+                // Buscar cada artículo clave
+                for (const numArt of info.articulos) {
+                    const { data, error } = await supabase
+                        .from('articulos')
+                        .select('id, numero_articulo, contenido, ley_id')
+                        .eq('ley_id', parseInt(info.ley))
+                        .eq('numero_articulo', numArt)
+                        .maybeSingle();
+                    
+                    if (data && !error) {
+                        articulosClaveEncontrados.push({
+                            id: data.id,
+                            numero_articulo: data.numero_articulo,
+                            contenido: data.contenido,
+                            ley_id: data.ley_id,
+                            ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
+                            similitud: 0.9 // Alta prioridad
+                        });
+                        console.log(`✅ Artículo clave encontrado: ${numArt}`);
+                    }
+                }
+                break;
+            }
+        }
+        
+        // Combinar resultados: primero los clave, luego los vectoriales
+        if (articulosClaveEncontrados.length > 0) {
+            // Evitar duplicados
+            const idsClave = new Set(articulosClaveEncontrados.map(a => a.id));
+            const vectorialesFiltrados = resultados.filter(a => !idsClave.has(a.id));
+            resultados = [...articulosClaveEncontrados, ...vectorialesFiltrados];
+            console.log(`📊 Híbrido: ${resultados.length} resultados (${articulosClaveEncontrados.length} clave + ${vectorialesFiltrados.length} vectorial)`);
+        }
     }
     
-    const prompt = `
-    Clasifica la siguiente consulta legal.
-    Responde SOLO con JSON: {"ley_id": número}
+    return resultados;
+}
 
-    Leyes: 1=CRBV, 2=LPH, 3=Código Civil, 4=Código Comercio, 5=COPP, 6=Código Penal, 7=CPC, 8=Arrendamiento Vivienda, 9=Violencia Mujer, 10=Arrendamiento Comercial, 11=Registros
+// ========== GROQ: CLASIFICAR CONSULTA ==========
+async function clasificarConsulta(pregunta) {
+    const prompt = `
+    Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
+    
+    CRITERIOS DE CLASIFICACIÓN:
+    - "Prescripción", "daños", "perjuicios", "responsabilidad civil", "accidente" → Código Civil (Ley 3)
+    - "Contrato", "arrendamiento", "alquiler" → Código Civil (Ley 3)
+    - "Propiedad horizontal", "condominio", "vecino" → LPH (Ley 2)
+    - "Constitución", "derechos humanos", "amparo" → CRBV (Ley 1)
+    - "Comercio", "sociedad", "empresa" → Código de Comercio (Ley 4)
+    - "Procesal", "procedimiento", "juicio" → CPC (Ley 7)
+    - "Penal", "delito", "crimen" → COPP (Ley 5) o Código Penal (Ley 6)
+    - "Arrendamiento vivienda" → Ley 8
+    - "Violencia mujer" → Ley 9
+
+    Leyes disponibles:
+    1: CRBV (Constitución)
+    2: LPH (Ley de Propiedad Horizontal)
+    3: CCV (Código Civil)
+    4: CCom (Código de Comercio)
+    5: COPP (Código Orgánico Procesal Penal)
+    6: CP (Código Penal)
+    7: CPC (Código de Procedimiento Civil)
+    8: Arrendamiento Vivienda
+    9: Violencia Mujer
+    10: Arrendamiento Comercial
+    11: Registros
 
     Consulta: "${pregunta}"
+
+    Responde SOLO con JSON:
+    {
+        "ley_id": número de la ley principal,
+        "articulo_num": número de artículo si se menciona específicamente (o null),
+        "tema": "descripción breve del tema legal",
+        "confianza": "alta/media/baja"
+    }
     `;
 
     try {
@@ -308,75 +270,152 @@ async function clasificarConsulta(pregunta) {
             messages: [{ role: 'user', content: prompt }],
             model: 'llama-3.3-70b-versatile',
             temperature: 0.1,
-            response_format: { type: "json_object" },
-            max_tokens: 50
+            response_format: { type: "json_object" }
         });
+
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación: Ley ${result.ley_id}`);
+        console.log(`📋 Clasificación: Ley ${result.ley_id} (${LEY_MAP[result.ley_id] || 'Desconocida'}), Confianza: ${result.confianza}, Tema: ${result.tema}`);
         return result;
     } catch (error) {
         console.error("Error en clasificación:", error);
-        return { ley_id: null };
+        return { ley_id: null, articulo_num: null, tema: null, confianza: 'baja' };
     }
 }
 
-// ========== GENERAR RESPUESTA (OPTIMIZADA) ==========
-async function generarRespuestaDirecta(pregunta, candidatos, leyId, articuloAprendido = null) {
+// ========== GROQ: SELECCIONAR ARTÍCULOS RELEVANTES ==========
+async function seleccionarArticulosRelevantes(pregunta, articulos, leyId) {
+    if (!articulos || articulos.length === 0) return [];
+    
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    // Seleccionar los 8 mejores candidatos y truncar contenido
-    const mejores = candidatos
-        .sort((a, b) => b.similitud - a.similitud)
-        .slice(0, 8);
-    
-    let contextoLegal = "";
-    for (let i = 0; i < mejores.length; i++) {
-        const a = mejores[i];
-        const texto = a.contenido.substring(0, 350);
-        contextoLegal += `\nArt. ${a.numero_articulo} (${(a.similitud || 0).toFixed(2)}): ${texto}...\n`;
-    }
-    
-    let instruccion = "";
-    if (articuloAprendido && articuloAprendido.length > 0) {
-        instruccion = `\n⚠️ PRIORIZA los artículos ${articuloAprendido.join(', ')}.`;
+    if (articulos.length <= 20) {
+        console.log(`📚 Solo ${articulos.length} artículos, pasando todos al modelo`);
+        return articulos;
     }
     
     const prompt = `
-    Eres LexnaVe, asistente legal venezolano.
-
-    Responde a la pregunta usando SOLO los artículos del contexto.
-    Cita el artículo exacto con su texto literal.
+    Eres un Juez experto en derecho venezolano. De la siguiente lista de artículos de la ${leyNombre}, selecciona los que son RELEVANTES para responder la pregunta del ciudadano.
 
     Pregunta: "${pregunta}"
-    Ley: ${leyNombre}
-    Contexto:${contextoLegal}
-    ${instruccion}
 
-    Estructura:
-    1. INTRODUCCIÓN (2 líneas)
-    2. "Según el Artículo X: [texto literal]"
-    3. ACCIONES RECOMENDADAS (3 pasos)
-    4. ADVERTENCIA: "⚖️ Esto es orientación general. Consulta con un abogado."`;
+    Artículos disponibles:
+    ${articulos.map((a, i) => `${i+1}. Artículo ${a.numero_articulo}: ${a.contenido.substring(0, 300)}...`).join('\n')}
+
+    Responde SOLO con un arreglo JSON de los números de los artículos seleccionados.
+    Ejemplo: [5, 14, 18]
+    `;
 
     try {
         const response = await groq.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
             model: 'llama-3.3-70b-versatile',
-            temperature: 0.2,
-            max_tokens: 800
+            temperature: 0.1,
+            response_format: { type: "json_object" }
         });
-        return response.choices[0].message.content;
+
+        const result = safeJsonParse(response.choices[0].message.content);
+        const seleccionados = Array.isArray(result) ? result : (result.ids || result.articulos || []);
+
+        if (seleccionados.length === 0) {
+            console.log('⚠️ No se seleccionaron artículos, usando los primeros 5');
+            return articulos.slice(0, 5);
+        }
+
+        const articulosSeleccionados = articulos.filter((_, index) => 
+            seleccionados.includes(index + 1) || seleccionados.includes(articulos[index].id)
+        );
+
+        console.log(`📊 Artículos seleccionados: ${articulosSeleccionados.map(a => a.numero_articulo).join(', ')}`);
+        return articulosSeleccionados.length > 0 ? articulosSeleccionados : articulos.slice(0, 5);
     } catch (error) {
-        console.error("Error generando respuesta:", error);
-        return null;
+        console.error("Error en selección de artículos:", error);
+        return articulos.slice(0, 5);
     }
 }
 
-// ========== EXTRAER ARTÍCULOS CITADOS ==========
-function extraerArticulosCitados(respuesta) {
+// ========== GROQ: GENERAR RESPUESTA FINAL ==========
+async function generarRespuesta(pregunta, articulosSeleccionados, leyId) {
+    const leyNombre = LEY_MAP[leyId] || 'Ley';
+
+    let contextoLegal = "";
+    if (articulosSeleccionados.length > 0) {
+        contextoLegal = articulosSeleccionados.map(a => 
+            `Artículo ${a.numero_articulo} de ${a.ley_nombre || leyNombre}: "${a.contenido}"`
+        ).join('\n\n');
+    } else {
+        contextoLegal = "No se encontraron artículos relevantes para esta consulta.";
+    }
+
+    const systemPrompt = `
+Eres "LexnaVe", un asistente jurídico especializado en leyes venezolanas.
+
+⚠️ REGLAS ABSOLUTAS:
+1. SOLO puedes citar artículos que estén en el CONTEXTO LEGAL que se te proporciona.
+2. Cada afirmación debe ir acompañada de: "Según el Artículo X de la Ley Y: [texto literal entre comillas]"
+3. NO puedes inventar, interpretar ni dar opiniones personales.
+4. Si el contexto no contiene información suficiente, responde: "No tengo información suficiente en mi base de datos para responder esta consulta."
+
+ESTRUCTURA DE RESPUESTA:
+1. INTRODUCCIÓN: Resumen de 2-3 líneas
+2. FUNDAMENTOS LEGALES: Artículos con texto literal
+3. ACCIONES RECOMENDADAS: Pasos prácticos (basados en la ley)
+4. ADVERTENCIA: "⚖️ Esto es orientación general. Consulta con un abogado."
+`;
+
+    const promptFinal = `
+CONTEXTO LEGAL:
+${contextoLegal}
+
+CONSULTA DEL USUARIO:
+"${pregunta}"
+
+INSTRUCCIÓN: Genera una respuesta siguiendo ESTRICTAMENTE la estructura y reglas indicadas.
+`;
+
+    try {
+        const response = await groq.chat.completions.create({
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: promptFinal }
+            ],
+            model: 'llama-3.3-70b-versatile',
+            temperature: 0.2,
+            max_tokens: 3000
+        });
+
+        return response.choices[0].message.content;
+    } catch (error) {
+        console.error("Error generando respuesta:", error);
+        return "⚠️ Se produjo un error al generar la respuesta. Por favor, intenta de nuevo.";
+    }
+}
+
+// ========== VALIDACIÓN DE CITAS ==========
+async function verificarCitasEnRespuesta(respuesta, articulosContexto) {
     const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
     const matches = respuesta.matchAll(regex);
-    return [...new Set([...matches].map(m => m[1]))];
+    const articulosMencionados = [...new Set([...matches].map(m => parseInt(m[1])))];
+
+    if (articulosMencionados.length === 0) {
+        console.log('⚠️ No se encontraron citas de artículos en la respuesta');
+        return false;
+    }
+
+    const idsContexto = [];
+    for (const art of articulosContexto) {
+        const num = art.numero_articulo.toString().replace(/\D/g, '');
+        if (num) idsContexto.push(parseInt(num));
+    }
+
+    const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
+
+    if (invalidos.length > 0) {
+        console.log(`⚠️ Artículos alucinados detectados: ${invalidos.join(', ')}`);
+        return false;
+    }
+
+    console.log(`✅ Todos los artículos citados (${articulosMencionados.join(', ')}) existen en el contexto`);
+    return true;
 }
 
 // ========== ENDPOINT PRINCIPAL ==========
@@ -386,96 +425,92 @@ app.post('/api/consultar', async (req, res) => {
     console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
 
     try {
-        // 1. APLICAR APRENDIZAJE
-        const aprendizaje = aplicarAprendizaje(pregunta);
-        let leyId = aprendizaje?.ley || null;
-        let articuloAprendido = aprendizaje?.articulos || null;
+        // 1. CLASIFICAR CONSULTA
+        const clasificacion = await clasificarConsulta(pregunta);
+        let leyId = clasificacion.ley_id;
+
+        // 2. BÚSQUEDA HÍBRIDA
+        let articulosEncontrados = [];
         
-        // 2. CLASIFICAR SI NO HAY APRENDIZAJE
-        if (!leyId) {
-            const clasificacion = await clasificarConsulta(pregunta);
-            leyId = clasificacion.ley_id;
+        if (leyId) {
+            console.log(`🔍 Buscando en ley ${leyId} (${LEY_MAP[leyId]})`);
+            articulosEncontrados = await buscarArticulosHibrido(pregunta, leyId, 50);
         }
 
-        // 3. BUSCAR EN LA LEY DETECTADA
-        let candidatos = [];
-        if (leyId) {
-            candidatos = await buscarCandidatos(pregunta, leyId, 50);
-        }
-        
-        // 4. SI NO HAY, BUSCAR EN TODAS
-        if (candidatos.length === 0) {
-            console.log('🔄 Buscando en todas las leyes...');
-            for (let id = 1; id <= 11; id++) {
-                if (id === leyId) continue;
-                const temp = await buscarCandidatos(pregunta, id, 30);
-                if (temp.length > 0) {
-                    candidatos = temp;
-                    leyId = id;
-                    console.log(`✅ Encontrados en ${LEY_MAP[id]}`);
-                    break;
-                }
+        // 3. SI NO ENCUENTRA RESULTADOS, BUSCAR EN TODAS LAS LEYES
+        if (articulosEncontrados.length === 0) {
+            console.log('🔄 No se encontraron resultados en la ley detectada. Buscando en todas las leyes...');
+            articulosEncontrados = await buscarArticulosHibrido(pregunta, null, 50);
+            
+            if (articulosEncontrados.length > 0) {
+                leyId = articulosEncontrados[0].ley_id;
+                console.log(`✅ Artículos encontrados en ${LEY_MAP[leyId]}`);
             }
         }
 
-        if (candidatos.length === 0) {
+        if (articulosEncontrados.length === 0) {
             return res.json({
-                respuesta: "⚠️ No encontré información suficiente. Consulta con un abogado."
+                respuesta: "⚠️ No encontré artículos relevantes en mi base de datos para tu consulta. Te recomiendo reformular la pregunta o consultar con un abogado."
             });
         }
 
-        // 5. GENERAR RESPUESTA
-        const respuesta = await generarRespuestaDirecta(pregunta, candidatos, leyId, articuloAprendido);
-        
-        if (!respuesta) {
+        console.log(`📚 Total artículos encontrados: ${articulosEncontrados.length}`);
+
+        // 4. SELECCIONAR ARTÍCULOS RELEVANTES CON GROQ
+        const articulosRelevantes = await seleccionarArticulosRelevantes(
+            pregunta, 
+            articulosEncontrados, 
+            leyId
+        );
+
+        if (articulosRelevantes.length === 0) {
             return res.json({
-                respuesta: "⚠️ Error generando respuesta. Intenta de nuevo."
+                respuesta: "⚠️ No encontré artículos relevantes para tu consulta. Te recomiendo consultar con un abogado especializado."
             });
         }
 
-        // 6. APRENDER SI ES RELEVANTE
-        const articulosCitados = extraerArticulosCitados(respuesta);
-        if (articulosCitados.length > 0 && !aprendizaje) {
-            const primerArt = articulosCitados[0];
-            const artEncontrado = candidatos.find(a => a.numero_articulo.toString() === primerArt);
-            if (artEncontrado) {
-                const esRelevante = await esArticuloRelevante(pregunta, primerArt, artEncontrado.contenido, leyId);
-                if (esRelevante) {
-                    aprenderPatron(pregunta, leyId, articulosCitados, true);
-                }
+        console.log(`📊 Artículos relevantes: ${articulosRelevantes.map(a => a.numero_articulo).join(', ')}`);
+
+        // 5. GENERAR RESPUESTA FINAL
+        let respuesta = await generarRespuesta(
+            pregunta, 
+            articulosRelevantes, 
+            leyId
+        );
+
+        // 6. VALIDAR CITAS
+        const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosRelevantes);
+
+        if (!citasValidas) {
+            console.log('⚠️ Se detectaron artículos alucinados. Regenerando respuesta...');
+            respuesta = await generarRespuesta(
+                pregunta, 
+                articulosRelevantes, 
+                leyId
+            );
+            
+            const citasValidas2 = await verificarCitasEnRespuesta(respuesta, articulosRelevantes);
+            if (!citasValidas2) {
+                return res.json({
+                    respuesta: "⚠️ No tengo información suficiente en mi base de datos para responder esta consulta con precisión. Te recomiendo consultar con un abogado especializado."
+                });
             }
         }
 
         res.json({ respuesta });
 
     } catch (error) {
-        console.error(`❌ Error:`, error);
+        console.error(`❌ Error crítico:`, error);
         res.status(500).json({
-            respuesta: "⚠️ Error en el servidor. Intenta de nuevo."
+            respuesta: "⚠️ Se produjo un error procesal en el servidor de LexnaVe. Por favor, reintente su consulta."
         });
     }
 });
 
-// ========== ENDPOINT DE ESTADO ==========
-app.get('/api/estado', async (req, res) => {
-    res.json({
-        estado: 'online',
-        patrones_aprendidos: Object.keys(learningData.patrones || {}).length,
-        embedder_cargado: embedder !== null,
-        leyes_disponibles: Object.keys(LEY_MAP).length
-    });
-});
-
 // ========== INICIO DEL SERVIDOR ==========
 const PORT = process.env.PORT || 10000;
-
-cargarAprendizaje();
-
 app.listen(PORT, async () => {
     console.log('🚀 LexnaVe Backend iniciando...');
     await initEmbedder();
-    console.log(`🚀 Servidor activo en puerto ${PORT}`);
-    console.log(`🧠 Patrones de aprendizaje: ${Object.keys(learningData.patrones || {}).length}`);
-    console.log(`📚 ${Object.keys(LEY_MAP).length} leyes disponibles`);
-    console.log(`🔍 Embedder: ${embedder ? '✅ Cargado' : '❌ No disponible (usando palabras clave)'}`);
+    console.log(`🚀 LexnaVe Backend activo en puerto ${PORT}`);
 });
