@@ -33,20 +33,41 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
-// ========== ARTÍCULOS CLAVE POR TEMA ==========
+// ========== ARTÍCULOS CLAVE POR TEMA (MEJORADO) ==========
 const ARTICULOS_CLAVE = {
+    // Código Civil (Ley 3)
     'prescripcion': { ley: 3, articulos: ['1969', '1950', '1951', '1952'] },
-    'daños y perjuicios': { ley: 3, articulos: ['1185', '1190', '1810'] },
-    'accidente transito': { ley: 3, articulos: ['1185', '1810'] },
+    'plazo prescripcion': { ley: 3, articulos: ['1969'] },
+    'daños y perjuicios': { ley: 3, articulos: ['1185', '1190', '1810', '1969'] },
+    'accidente transito': { ley: 3, articulos: ['1185', '1810', '1969'] },
+    'responsabilidad civil': { ley: 3, articulos: ['1185', '1190'] },
     'servidumbre': { ley: 3, articulos: ['571', '572', '573', '574', '575', '576', '577'] },
-    'flagrancia': { ley: 5, articulos: ['373'] },
+    'vias de hecho': { ley: 3, articulos: ['548'] },
+    'contrato': { ley: 3, articulos: ['1137', '1140', '1145'] },
+    'arrendamiento': { ley: 3, articulos: ['1576', '1577', '1578'] },
+    
+    // LPH (Ley 2)
     'propiedad horizontal': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
+    'condominio': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
+    'cuotas mantenimiento': { ley: 2, articulos: ['14', '7', '5'] },
+    
+    // CRBV (Ley 1)
     'amparo': { ley: 1, articulos: ['26', '27', '49'] },
     'derecho propiedad': { ley: 1, articulos: ['115'] },
-    'vias de hecho': { ley: 3, articulos: ['548'] },
+    'estado excepcion': { ley: 1, articulos: ['337', '338', '339'] },
+    
+    // COPP (Ley 5)
+    'flagrancia': { ley: 5, articulos: ['373'] },
+    'detencion': { ley: 5, articulos: ['373', '374', '375'] },
+    'presentacion juez': { ley: 5, articulos: ['373'] },
+    
+    // CPC (Ley 7)
     'intimacion': { ley: 7, articulos: ['640', '641', '642'] },
-    'letra cambio': { ley: 7, articulos: ['640', '641'] },
-    'desalojo': { ley: 8, articulos: ['20', '21', '22'] }
+    'procedimiento civil': { ley: 7, articulos: ['340', '341', '342'] },
+    
+    // Código de Comercio (Ley 4)
+    'letra cambio': { ley: 4, articulos: ['410'] },
+    'comercio': { ley: 4, articulos: ['2', '5', '10'] }
 };
 
 // ========== MODELO DE EMBEDDING LOCAL ==========
@@ -103,7 +124,6 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 50) {
             return buscarPorTexto(pregunta, leyId, limite);
         }
         
-        // UMBRAL REDUCIDO A 0.15 PARA MAYOR RECALL
         const { data, error } = await supabase.rpc('match_articles', {
             query_embedding: embedding,
             match_ley_id: leyId || 0,
@@ -188,7 +208,7 @@ async function buscarArticuloClave(leyId, numeroArticulo) {
                 contenido: data.contenido,
                 ley_id: data.ley_id,
                 ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
-                similitud: 0.95 // Prioridad máxima
+                similitud: 0.95
             };
         }
         return null;
@@ -221,7 +241,7 @@ async function buscarArticulosHibrido(pregunta, leyId = null, limite = 50) {
                     console.log(`✅ Artículo clave encontrado: Art. ${numArt} de ${LEY_MAP[info.ley]}`);
                 }
             }
-            break; // Solo procesar el primer tema detectado
+            break;
         }
     }
     
@@ -229,7 +249,7 @@ async function buscarArticulosHibrido(pregunta, leyId = null, limite = 50) {
     const vectoriales = await buscarPorSimilitud(pregunta, leyUsar, limite);
     console.log(`📊 Vectorial: ${vectoriales.length} resultados`);
     
-    // 3. COMBINAR: Primero artículos clave, luego vectoriales (evitando duplicados)
+    // 3. COMBINAR: Primero artículos clave, luego vectoriales
     if (articulosClaveEncontrados.length > 0) {
         const idsClave = new Set(articulosClaveEncontrados.map(a => a.id));
         const vectorialesFiltrados = vectoriales.filter(a => !idsClave.has(a.id));
@@ -257,13 +277,13 @@ async function clasificarConsulta(pregunta) {
     Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
     
     CRITERIOS DE CLASIFICACIÓN:
-    - "Prescripción", "daños", "perjuicios", "responsabilidad civil", "accidente" → Código Civil (Ley 3)
+    - "Prescripción", "plazo", "daños", "perjuicios", "responsabilidad civil", "accidente" → Código Civil (Ley 3)
     - "Contrato", "arrendamiento", "alquiler" → Código Civil (Ley 3) o Ley Arrendamiento (Ley 8)
     - "Propiedad horizontal", "condominio", "vecino" → LPH (Ley 2)
-    - "Constitución", "derechos humanos", "amparo" → CRBV (Ley 1)
+    - "Constitución", "derechos humanos", "amparo", "estado excepción" → CRBV (Ley 1)
     - "Comercio", "sociedad", "empresa", "letra cambio" → Código de Comercio (Ley 4)
     - "Procesal", "procedimiento", "juicio", "intimación" → CPC (Ley 7)
-    - "Penal", "delito", "crimen" → COPP (Ley 5) o Código Penal (Ley 6)
+    - "Penal", "delito", "crimen", "detención" → COPP (Ley 5) o Código Penal (Ley 6)
     - "Arrendamiento vivienda" → Ley 8
     - "Violencia mujer" → Ley 9
 
@@ -314,7 +334,6 @@ async function seleccionarArticulosRelevantes(pregunta, articulos, leyId) {
     
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    // Si hay pocos artículos, pasar todos
     if (articulos.length <= 20) {
         console.log(`📚 Solo ${articulos.length} artículos, pasando todos al modelo`);
         return articulos;
