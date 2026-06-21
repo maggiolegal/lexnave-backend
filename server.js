@@ -1,9 +1,9 @@
 import express from 'express';
 import cors from 'cors';
-import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
 import { WebSocket } from 'ws';
 import { pipeline } from '@xenova/transformers';
+import OpenAI from 'openai';
 
 const app = express();
 app.use(cors());
@@ -16,8 +16,15 @@ const supabase = createClient(
     { realtime: { transport: WebSocket } }
 );
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
+// ========== OPENROUTER CONFIGURACIÓN ==========
+const openrouter = new OpenAI({
+    baseURL: 'https://openrouter.ai/api/v1',
+    apiKey: process.env.OPENROUTER_API_KEY,
+    defaultHeaders: {
+        'HTTP-Referer': 'https://lexnave-backend.onrender.com',
+        'X-Title': 'LexnaVe Legal Assistant'
+    }
+});
 // ========== MAPEO DE LEYES ==========
 const LEY_MAP = {
     1: "Constitución de la República Bolivariana de Venezuela",
@@ -77,7 +84,7 @@ async function generarEmbedding(texto) {
     }
 }
 
-// ========== BÚSQUEDA POR SIMILITUD (OPTIMIZADA) ==========
+// ========== BÚSQUEDA POR SIMILITUD ==========
 async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
     try {
         const embedding = await generarEmbedding(pregunta);
@@ -153,7 +160,7 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 30) {
     }
 }
 
-// ========== GROQ: CLASIFICAR CONSULTA ==========
+// ========== OPENROUTER: CLASIFICAR CONSULTA ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
     Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
@@ -183,12 +190,11 @@ async function clasificarConsulta(pregunta) {
     `;
 
     try {
-        const response = await groq.chat.completions.create({
+        const response = await openrouter.chat.completions.create({
+            model: 'google/gemini-2.0-flash-exp:free',
             messages: [{ role: 'user', content: prompt }],
-            model: 'llama-3.3-70b-versatile',
             temperature: 0.1,
-            response_format: { type: "json_object" },
-            max_tokens: 100
+            max_tokens: 150
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
@@ -200,14 +206,14 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== GROQ: GENERAR RESPUESTA DIRECTA (OPTIMIZADA) ==========
+// ========== OPENROUTER: GENERAR RESPUESTA ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    // Tomar los 12 mejores candidatos (reducido de 20)
+    // Tomar los 12 mejores candidatos
     const mejores = candidatos.slice(0, 12);
     
-    // Construir contexto con 350 caracteres (reducido de 500)
+    // Construir contexto
     let contextoLegal = "";
     for (let i = 0; i < mejores.length; i++) {
         const a = mejores[i];
@@ -243,12 +249,12 @@ INSTRUCCIÓN: Responde con la estructura indicada.
 `;
 
     try {
-        const response = await groq.chat.completions.create({
+        const response = await openrouter.chat.completions.create({
+            model: 'google/gemini-2.0-flash-exp:free',
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: promptFinal }
             ],
-            model: 'llama-3.3-70b-versatile',
             temperature: 0.2,
             max_tokens: 1500
         });
@@ -260,7 +266,7 @@ INSTRUCCIÓN: Responde con la estructura indicada.
     }
 }
 
-// ========== EXTRAER Y VALIDAR CITAS ==========
+// ========== VALIDAR CITAS ==========
 function extraerArticulosCitados(respuesta) {
     const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
     const matches = respuesta.matchAll(regex);
@@ -322,7 +328,7 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`🔍 Buscando en ${LEY_MAP[leyId]}`);
         
-        // 2. BÚSQUEDA VECTORIAL (30 artículos)
+        // 2. BÚSQUEDA VECTORIAL
         let articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 30);
 
         // 3. SI NO HAY, BUSCAR EN TODAS
