@@ -25,6 +25,7 @@ const openrouter = new OpenAI({
         'X-Title': 'LexnaVe Legal Assistant'
     }
 });
+
 // ========== MAPEO DE LEYES ==========
 const LEY_MAP = {
     1: "Constitución de la República Bolivariana de Venezuela",
@@ -191,7 +192,7 @@ async function clasificarConsulta(pregunta) {
 
     try {
         const response = await openrouter.chat.completions.create({
-            model: 'google/gemini-2.0-flash-exp:free',
+            model: 'meta-llama/llama-3.3-70b-instruct:free',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.1,
             max_tokens: 150
@@ -250,7 +251,7 @@ INSTRUCCIÓN: Responde con la estructura indicada.
 
     try {
         const response = await openrouter.chat.completions.create({
-            model: 'google/gemini-2.0-flash-exp:free',
+            model: 'meta-llama/llama-3.3-70b-instruct:free',
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: promptFinal }
