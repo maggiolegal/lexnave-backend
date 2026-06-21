@@ -33,11 +33,10 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
-// ========== ARTÍCULOS CLAVE POR LEY (COMPLETO) ==========
+// ========== ARTÍCULOS CLAVE POR LEY ==========
 const ARTICULOS_CLAVE = {
     // ===== LEY 1: CRBV =====
     1: {
-        // Derechos Fundamentales
         'amparo': ['26', '27', '49'],
         'derecho propiedad': ['115'],
         'estado excepcion': ['337', '338', '339'],
@@ -60,8 +59,7 @@ const ARTICULOS_CLAVE = {
         'derecho adultos mayores': ['80'],
         'derecho discapacidad': ['81'],
         'derecho pueblos indígenas': ['119', '120', '121'],
-        'derecho mujer': ['88', '89'],
-        'derecho trabajo': ['87', '88', '89']
+        'derecho mujer': ['88', '89']
     },
     
     // ===== LEY 2: LPH =====
@@ -81,62 +79,49 @@ const ARTICULOS_CLAVE = {
     
     // ===== LEY 3: CÓDIGO CIVIL =====
     3: {
-        // Prescripción
-        'prescripcion': ['1969', '1950', '1951', '1952'],
-        'plazo prescripcion': ['1969'],
-        'interrupcion prescripcion': ['1969'],
-        
-        // Responsabilidad Civil
-        'daños y perjuicios': ['1185', '1190', '1810', '1969'],
-        'accidente transito': ['1185', '1810', '1969'],
-        'responsabilidad civil': ['1185', '1190'],
-        
-        // Servidumbres
-        'servidumbre': ['571', '572', '573', '574', '575', '576', '577'],
-        'servidumbre luces': ['571', '572', '573', '574'],
-        'servidumbre vistas': ['571', '572', '573', '574'],
+        // PRIORIDAD ALTA (temas específicos primero)
+        'servidumbre luces': ['571', '572', '573', '574', '575', '576', '577'],
+        'servidumbre vistas': ['571', '572', '573', '574', '575', '576', '577'],
         'luz natural': ['571', '572', '573', '574'],
         'muro': ['571', '572', '573'],
         'pared medianera': ['571', '572'],
         'distancia construccion': ['571', '572', '573'],
+        'servidumbre': ['571', '572', '573', '574', '575', '576', '577'],
         
-        // Vías de hecho
+        // PRIORIDAD MEDIA
         'vias de hecho': ['548'],
-        
-        // Contratos
+        'prescripcion': ['1969', '1950', '1951', '1952'],
+        'plazo prescripcion': ['1969'],
+        'interrupcion prescripcion': ['1969'],
         'contrato': ['1137', '1140', '1145'],
         'arrendamiento': ['1576', '1577', '1578'],
-        
-        // Familia
         'matrimonio': ['82', '83', '84', '85', '86', '87', '88'],
         'divorcio': ['185', '186', '187'],
         'separacion': ['185', '186', '187'],
         'filiacion': ['210', '211', '212'],
         'patria potestad': ['262', '263', '264'],
         'alimentos': ['282', '283', '284'],
-        
-        // Sucesiones
         'herencia': ['991', '992', '993', '994'],
         'testamento': ['991', '992', '993', '994'],
         'sucesion': ['991', '992', '993', '994'],
         'albacea': ['971', '972', '973'],
         'legitima': ['994', '995', '996'],
-        
-        // Propiedad
         'usucapion': ['1977', '1978'],
         'propiedad': ['545', '546', '547'],
         'posesion': ['771', '772', '773'],
         'accesion': ['571', '572', '573'],
-        
-        // Obligaciones
         'obligaciones': ['1137', '1138', '1139'],
         'pago': ['1300', '1301', '1302'],
-        'incumplimiento': ['1137', '1138', '1139']
+        'incumplimiento': ['1137', '1138', '1139'],
+        
+        // PRIORIDAD BAJA (genéricos)
+        'daños y perjuicios': ['1185', '1190', '1810', '1969'],
+        'accidente transito': ['1185', '1810', '1969'],
+        'responsabilidad civil': ['1185', '1190']
     },
     
     // ===== LEY 4: CÓDIGO DE COMERCIO =====
     4: {
-        // Títulos Valores
         'letra cambio': ['410'],
         'requisitos letra': ['410'],
         'pagare': ['410'],
@@ -146,30 +131,23 @@ const ARTICULOS_CLAVE = {
         'protesto': ['413', '414'],
         'vencimiento': ['413', '414'],
         'aceptacion': ['411', '412'],
-        
-        // Sociedades
         'sociedad mercantil': ['200', '201', '202'],
         'sociedad anonima': ['200', '201', '202'],
         'empresa': ['2', '5', '10'],
         'comerciante': ['2', '5', '10'],
         'acto comercio': ['2', '5', '10'],
-        
-        // Contratos Mercantiles
         'compraventa mercantil': ['2', '5', '10'],
         'seguro': ['2', '5', '10'],
         'cuenta corriente': ['2', '5', '10']
     },
     
-    // ===== LEY 5: COPP (COMPLETO) =====
+    // ===== LEY 5: COPP =====
     5: {
-        // Detención y Flagrancia
         'flagrancia': ['373'],
         'detencion': ['373', '374', '375'],
         'presentacion juez': ['373'],
         'aprehension': ['373', '374'],
         'plazo detencion': ['373'],
-        
-        // Medidas de Coerción
         'medidas cautelares': ['236', '237', '238'],
         'privacion libertad': ['236', '237', '238'],
         'libertad provisional': ['242', '243', '244'],
@@ -177,43 +155,32 @@ const ARTICULOS_CLAVE = {
         'caución': ['244', '245'],
         'arresto domiciliario': ['236', '237', '238'],
         'presentacion periodica': ['242', '243', '244'],
-        
-        // Procedimiento
         'procedimiento abreviado': ['372', '373'],
         'procedimiento ordinario': ['373'],
         'juicio oral': ['332', '333', '334'],
         'audiencia preliminar': ['309', '310'],
         'acto conclusivo': ['295'],
-        
-        // Fase Preparatoria
         'fase preparatoria': ['295'],
         'investigacion': ['295', '296'],
         'imputacion': ['295'],
         'fiscalia': ['295', '373'],
-        
-        // Delitos
         'homicidio': ['405', '406'],
         'violacion': ['374', '375'],
         'secuestro': ['374', '375'],
         'robo': ['374', '375'],
         'hurto': ['374', '375'],
         'lesiones': ['374', '375'],
-        
-        // Derechos del Imputado
         'derecho defensa': ['8', '9', '10'],
         'presuncion inocencia': ['8'],
         'debido proceso penal': ['8', '9'],
         'derecho silencio': ['8', '9', '10'],
-        
-        // Recursos
         'apelacion': ['438', '439'],
         'recurso': ['438', '439'],
         'casacion': ['438', '439']
     },
     
-    // ===== LEY 6: CÓDIGO PENAL (COMPLETO) =====
+    // ===== LEY 6: CÓDIGO PENAL =====
     6: {
-        // Delitos Contra la Propiedad
         'hurto': ['451', '452', '453'],
         'robo': ['455', '456', '457'],
         'robo agravado': ['456', '457'],
@@ -222,8 +189,6 @@ const ARTICULOS_CLAVE = {
         'fraude': ['461', '462'],
         'apropiacion indebida': ['465', '466'],
         'daño a propiedad': ['451', '452', '453'],
-        
-        // Delitos Contra las Personas
         'homicidio': ['405', '406'],
         'homicidio calificado': ['406'],
         'homicidio culposo': ['409'],
@@ -234,15 +199,11 @@ const ARTICULOS_CLAVE = {
         'abuso sexual': ['375', '376'],
         'acoso sexual': ['375', '376'],
         'violencia': ['413', '414'],
-        
-        // Delitos Contra la Libertad
         'secuestro': ['460'],
         'extorsion': ['460'],
         'coaccion': ['460'],
         'amenaza': ['460'],
         'privacion libertad': ['460'],
-        
-        // Delitos Contra la Administración
         'corrupcion': ['60', '61', '62'],
         'peculado': ['63', '64'],
         'malversacion': ['63', '64'],
@@ -250,27 +211,19 @@ const ARTICULOS_CLAVE = {
         'cohecho': ['67', '68'],
         'prevaricacion': ['70', '71'],
         'narcotrafico': ['460'],
-        
-        // Delitos Contra la Fe Pública
         'falsificacion': ['450'],
         'falsedad': ['450'],
         'perjurio': ['450'],
         'falso testimonio': ['450'],
-        
-        // Delitos Económicos
         'contrabando': ['460'],
         'tráfico drogas': ['460'],
         'legitimacion capitales': ['460'],
         'lavado dinero': ['460'],
-        
-        // Penas
         'pena': ['451', '455', '405', '406'],
         'prision': ['451', '455', '405', '406'],
         'presidio': ['451', '455', '405', '406'],
         'arresto': ['451', '455', '405', '406'],
         'multa': ['451', '455', '405', '406'],
-        
-        // Circunstancias
         'reincidencia': ['26'],
         'atenuantes': ['27', '28', '29'],
         'agravantes': ['30', '31'],
@@ -279,30 +232,21 @@ const ARTICULOS_CLAVE = {
     
     // ===== LEY 7: CPC =====
     7: {
-        // Procedimientos Especiales
         'intimacion': ['640', '641', '642'],
         'procedimiento breve': ['881', '882', '883'],
         'ejecucion': ['650', '651', '652'],
-        
-        // Procedimiento Ordinario
         'procedimiento civil': ['340', '341', '342'],
         'demanda': ['340'],
         'juicio': ['340', '341'],
         'apelacion': ['340', '341'],
         'recurso': ['340', '341'],
-        
-        // Medidas
         'medidas preventivas': ['585', '586', '587'],
         'embargo': ['585', '586', '587'],
         'secuestro': ['585', '586', '587'],
-        
-        // Pruebas
         'pruebas': ['395', '396', '397'],
         'testigos': ['395', '396', '397'],
         'documentos': ['395', '396', '397'],
         'confesion': ['395', '396', '397'],
-        
-        // Notificaciones
         'citacion': ['174', '175', '176'],
         'notificacion': ['174', '175', '176'],
         'emplazamiento': ['174', '175', '176']
@@ -334,7 +278,7 @@ const ARTICULOS_CLAVE = {
         'canon comercial': ['1', '2', '3']
     },
     
-    // ===== LEY 11: REGISTROS Y NOTARÍAS =====
+    // ===== LEY 11: REGISTROS =====
     11: {
         'registro': ['1', '2', '3'],
         'notaría': ['1', '2', '3'],
@@ -343,7 +287,7 @@ const ARTICULOS_CLAVE = {
     }
 };
 
-// ========== MODELO DE EMBEDDING LOCAL ==========
+// ========== MODELO DE EMBEDDING ==========
 let embedder = null;
 
 async function initEmbedder() {
@@ -490,21 +434,62 @@ async function buscarArticuloClave(leyId, numeroArticulo) {
     }
 }
 
-// ========== BÚSQUEDA HÍBRIDA ==========
+// ========== BÚSQUEDA HÍBRIDA CON PRIORIDAD DE TEMAS ==========
 async function buscarArticulosHibrido(pregunta, leyId, limite = 50) {
     let resultados = [];
     let articulosClaveEncontrados = [];
     
     const preguntaLower = pregunta.toLowerCase();
     
-    // 1. BUSCAR ARTÍCULOS CLAVE SOLO EN LA LEY DETECTADA
+    // 1. BUSCAR ARTÍCULOS CLAVE CON PRIORIDAD
     if (leyId && ARTICULOS_CLAVE[leyId]) {
         const temasDeLaLey = ARTICULOS_CLAVE[leyId];
         
-        for (const [tema, articulos] of Object.entries(temasDeLaLey)) {
-            if (preguntaLower.includes(tema) || 
-                tema.split(' ').some(palabra => preguntaLower.includes(palabra))) {
-                console.log(`🔑 Tema detectado en ley ${leyId}: "${tema}"`);
+        // Definir prioridad de temas (más específicos primero)
+        const prioridadTemas = [
+            'servidumbre luces',
+            'servidumbre vistas',
+            'luz natural',
+            'muro',
+            'pared medianera',
+            'distancia construccion',
+            'servidumbre',
+            'vias de hecho',
+            'flagrancia',
+            'detencion',
+            'presentacion juez',
+            'letra cambio',
+            'requisitos letra',
+            'propiedad horizontal',
+            'cuotas mantenimiento',
+            'amparo',
+            'estado excepcion',
+            'daños y perjuicios',
+            'responsabilidad civil',
+            'hurto',
+            'robo',
+            'homicidio'
+        ];
+        
+        // Ordenar temas según prioridad
+        const temasOrdenados = Object.keys(temasDeLaLey).sort((a, b) => {
+            const indexA = prioridadTemas.indexOf(a);
+            const indexB = prioridadTemas.indexOf(b);
+            const pesoA = indexA !== -1 ? prioridadTemas.length - indexA : 0;
+            const pesoB = indexB !== -1 ? prioridadTemas.length - indexB : 0;
+            return pesoB - pesoA;
+        });
+        
+        let temaEncontrado = false;
+        
+        for (const tema of temasOrdenados) {
+            const articulos = temasDeLaLey[tema];
+            // Verificar si el tema está en la pregunta (exacto o por palabras)
+            const temaEnPregunta = preguntaLower.includes(tema) || 
+                tema.split(' ').some(palabra => preguntaLower.includes(palabra));
+            
+            if (temaEnPregunta) {
+                console.log(`🔑 Tema detectado en ley ${leyId}: "${tema}" (prioridad alta)`);
                 
                 for (const numArt of articulos) {
                     const articulo = await buscarArticuloClave(leyId, numArt);
@@ -513,7 +498,20 @@ async function buscarArticulosHibrido(pregunta, leyId, limite = 50) {
                         console.log(`✅ Artículo clave encontrado: Art. ${numArt} de ${LEY_MAP[leyId]}`);
                     }
                 }
+                temaEncontrado = true;
                 break;
+            }
+        }
+        
+        // Si no se detectó ningún tema específico, usar el primero de la lista
+        if (!temaEncontrado && Object.keys(temasDeLaLey).length > 0) {
+            const primerTema = Object.keys(temasDeLaLey)[0];
+            console.log(`⚠️ Usando tema por defecto: "${primerTema}"`);
+            for (const numArt of temasDeLaLey[primerTema]) {
+                const articulo = await buscarArticuloClave(leyId, numArt);
+                if (articulo) {
+                    articulosClaveEncontrados.push(articulo);
+                }
             }
         }
     }
@@ -550,8 +548,8 @@ async function clasificarConsulta(pregunta) {
     Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
     
     CRITERIOS DE CLASIFICACIÓN:
-    - "Prescripción", "plazo", "daños", "perjuicios", "responsabilidad civil" → Código Civil (Ley 3)
     - "Servidumbre", "luz natural", "muro", "pared medianera" → Código Civil (Ley 3)
+    - "Prescripción", "plazo", "daños", "perjuicios", "responsabilidad civil" → Código Civil (Ley 3)
     - "Hurto", "robo", "pena", "prisión", "delito" → Código Penal (Ley 6)
     - "Detención", "flagrancia", "fiscal", "juez" → COPP (Ley 5)
     - "Letra de cambio", "comercio", "sociedad", "empresa" → Código de Comercio (Ley 4)
@@ -706,7 +704,6 @@ app.post('/api/consultar', async (req, res) => {
         const clasificacion = await clasificarConsulta(pregunta);
         let leyId = clasificacion.ley_id;
 
-        // Si no se detectó ley, intentar con 3 (Código Civil) como fallback
         if (!leyId) {
             console.log('⚠️ No se detectó ley, usando Código Civil (Ley 3) como fallback');
             leyId = 3;
@@ -714,7 +711,7 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`🔍 Buscando en ley ${leyId} (${LEY_MAP[leyId]})`);
         
-        // 2. BÚSQUEDA HÍBRIDA EN LA LEY DETECTADA
+        // 2. BÚSQUEDA HÍBRIDA CON PRIORIDAD
         let articulosEncontrados = await buscarArticulosHibrido(pregunta, leyId, 50);
 
         // 3. SI NO ENCUENTRA RESULTADOS, BUSCAR EN TODAS LAS LEYES
