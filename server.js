@@ -33,59 +33,6 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
-// ========== ARTÍCULOS CLAVE POR LEY ==========
-const ARTICULOS_CLAVE = {
-    // Ley 3: Código Civil
-    3: {
-        'prescripcion': ['1969', '1950', '1951', '1952'],
-        'plazo prescripcion': ['1969'],
-        'daños y perjuicios': ['1185', '1190', '1810', '1969'],
-        'accidente transito': ['1185', '1810', '1969'],
-        'responsabilidad civil': ['1185', '1190'],
-        'servidumbre': ['571', '572', '573', '574', '575', '576', '577'],
-        'vias de hecho': ['548'],
-        'contrato': ['1137', '1140', '1145']
-    },
-    // Ley 2: LPH
-    2: {
-        'propiedad horizontal': ['5', '7', '8', '9', '14'],
-        'condominio': ['5', '7', '8', '9', '14'],
-        'cuotas mantenimiento': ['14', '7', '5']
-    },
-    // Ley 1: CRBV
-    1: {
-        'amparo': ['26', '27', '49'],
-        'derecho propiedad': ['115'],
-        'estado excepcion': ['337', '338', '339']
-    },
-    // Ley 5: COPP
-    5: {
-        'flagrancia': ['373'],
-        'detencion': ['373', '374', '375'],
-        'presentacion juez': ['373']
-    },
-    // Ley 7: CPC
-    7: {
-        'intimacion': ['640', '641', '642'],
-        'procedimiento civil': ['340', '341', '342']
-    },
-    // Ley 4: Código de Comercio
-    4: {
-        'letra cambio': ['410'],
-        'requisitos letra': ['410'],
-        'comercio': ['2', '5', '10'],
-        'pagare': ['410']
-    },
-    // Ley 8: Arrendamiento Vivienda
-    8: {
-        'arrendamiento vivienda': ['1', '2', '3', '4', '5']
-    },
-    // Ley 9: Violencia Mujer
-    9: {
-        'violencia mujer': ['1', '2', '3']
-    }
-};
-
 // ========== MODELO DE EMBEDDING LOCAL ==========
 let embedder = null;
 
@@ -206,216 +153,91 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== BUSCAR ARTÍCULO CLAVE EN UNA LEY ESPECÍFICA ==========
-async function buscarArticuloClave(leyId, numeroArticulo) {
-    try {
-        const { data, error } = await supabase
-            .from('articulos')
-            .select('id, numero_articulo, contenido, ley_id')
-            .eq('ley_id', parseInt(leyId))
-            .ilike('numero_articulo', `%${numeroArticulo}%`)
-            .maybeSingle();
-        
-        if (data && !error) {
-            return {
-                id: data.id,
-                numero_articulo: data.numero_articulo,
-                contenido: data.contenido,
-                ley_id: data.ley_id,
-                ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
-                similitud: 0.95
-            };
-        }
-        return null;
-    } catch (e) {
-        console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
-        return null;
-    }
-}
-
-// ========== BÚSQUEDA HÍBRIDA (CORREGIDA) ==========
-async function buscarArticulosHibrido(pregunta, leyId, limite = 50) {
-    let resultados = [];
-    let articulosClaveEncontrados = [];
-    
-    const preguntaLower = pregunta.toLowerCase();
-    
-    // 1. BUSCAR ARTÍCULOS CLAVE SOLO EN LA LEY DETECTADA
-    if (leyId && ARTICULOS_CLAVE[leyId]) {
-        const temasDeLaLey = ARTICULOS_CLAVE[leyId];
-        
-        for (const [tema, articulos] of Object.entries(temasDeLaLey)) {
-            if (preguntaLower.includes(tema) || 
-                tema.split(' ').some(palabra => preguntaLower.includes(palabra))) {
-                console.log(`🔑 Tema detectado en ley ${leyId}: "${tema}"`);
-                
-                for (const numArt of articulos) {
-                    const articulo = await buscarArticuloClave(leyId, numArt);
-                    if (articulo) {
-                        articulosClaveEncontrados.push(articulo);
-                        console.log(`✅ Artículo clave encontrado: Art. ${numArt} de ${LEY_MAP[leyId]}`);
-                    }
-                }
-                break;
-            }
-        }
-    }
-    
-    // 2. BÚSQUEDA VECTORIAL EN LA LEY DETECTADA
-    const vectoriales = await buscarPorSimilitud(pregunta, leyId, limite);
-    console.log(`📊 Vectorial en ley ${leyId}: ${vectoriales.length} resultados`);
-    
-    // 3. COMBINAR: Primero artículos clave, luego vectoriales
-    if (articulosClaveEncontrados.length > 0) {
-        const idsClave = new Set(articulosClaveEncontrados.map(a => a.id));
-        const vectorialesFiltrados = vectoriales.filter(a => !idsClave.has(a.id));
-        resultados = [...articulosClaveEncontrados, ...vectorialesFiltrados];
-        console.log(`📊 Híbrido: ${resultados.length} resultados (${articulosClaveEncontrados.length} clave + ${vectorialesFiltrados.length} vectorial)`);
-    } else {
-        resultados = vectoriales;
-    }
-    
-    // 4. SI AÚN HAY POCOS RESULTADOS, BUSCAR POR TEXTO
-    if (resultados.length < 5) {
-        console.log('🔍 Pocos resultados. Activando búsqueda textual...');
-        const textuales = await buscarPorTexto(pregunta, leyId, 20);
-        const idsExistentes = new Set(resultados.map(a => a.id));
-        const textualesFiltrados = textuales.filter(a => !idsExistentes.has(a.id));
-        resultados = [...resultados, ...textualesFiltrados];
-    }
-    
-    return resultados;
-}
-
-// ========== GROQ: CLASIFICAR CONSULTA ==========
+// ========== CLASIFICACIÓN CON 8B (RÁPIDO Y BARATO) ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
-    Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
+    Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
     
-    CRITERIOS DE CLASIFICACIÓN:
-    - "Prescripción", "plazo", "daños", "perjuicios", "responsabilidad civil", "accidente" → Código Civil (Ley 3)
-    - "Letra de cambio", "requisitos letra", "pagare" → Código de Comercio (Ley 4)
-    - "Propiedad horizontal", "condominio", "vecino", "cuotas" → LPH (Ley 2)
-    - "Constitución", "derechos humanos", "amparo", "estado excepción" → CRBV (Ley 1)
-    - "Detención", "flagrancia", "penal" → COPP (Ley 5)
-    - "Procesal", "procedimiento", "juicio", "intimación" → CPC (Ley 7)
-    - "Arrendamiento vivienda" → Ley 8
-    - "Violencia mujer" → Ley 9
-
-    Leyes disponibles:
-    1: CRBV, 2: LPH, 3: Código Civil, 4: Código de Comercio, 5: COPP, 6: Código Penal, 7: CPC, 8: Arrendamiento Vivienda, 9: Violencia Mujer, 10: Arrendamiento Comercial, 11: Registros
+    CRITERIOS:
+    - prescripción, daños, perjuicios, accidente → 3
+    - divorcio, matrimonio, alimentos → 3
+    - servidumbre, luz natural, muro → 3
+    - hurto, robo, penal → 6
+    - detención, flagrancia → 5
+    - letra de cambio, comercio → 4
+    - propiedad horizontal, condominio, vecino → 2
+    - constitución, amparo → 1
+    - procedimiento, juicio, demanda → 7
 
     Consulta: "${pregunta}"
-
-    Responde SOLO con JSON:
-    {"ley_id": número, "tema": "descripción breve", "confianza": "alta/media/baja"}
     `;
 
     try {
         const response = await groq.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
-            model: 'llama-3.3-70b-versatile',
+            model: 'llama-3.1-8b-instant',
             temperature: 0.1,
-            response_format: { type: "json_object" }
+            response_format: { type: "json_object" },
+            max_tokens: 50
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación: Ley ${result.ley_id} (${LEY_MAP[result.ley_id] || 'Desconocida'}), Confianza: ${result.confianza}`);
+        console.log(`📋 Clasificación (8B): Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.error("Error en clasificación:", error);
-        return { ley_id: null, tema: null, confianza: 'baja' };
+        console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
+        const lower = pregunta.toLowerCase();
+        if (lower.includes('prescripcion') || lower.includes('daños') || lower.includes('accidente')) return { ley_id: 3 };
+        if (lower.includes('divorcio') || lower.includes('matrimonio')) return { ley_id: 3 };
+        if (lower.includes('servidumbre') || lower.includes('luz natural')) return { ley_id: 3 };
+        if (lower.includes('hurto') || lower.includes('robo')) return { ley_id: 6 };
+        if (lower.includes('detención') || lower.includes('flagrancia')) return { ley_id: 5 };
+        if (lower.includes('letra') || lower.includes('comercio')) return { ley_id: 4 };
+        if (lower.includes('propiedad horizontal') || lower.includes('condominio')) return { ley_id: 2 };
+        if (lower.includes('constitución') || lower.includes('amparo')) return { ley_id: 1 };
+        if (lower.includes('procedimiento') || lower.includes('juicio') || lower.includes('demanda')) return { ley_id: 7 };
+        return { ley_id: 3 };
     }
 }
 
-// ========== GROQ: SELECCIONAR ARTÍCULOS RELEVANTES ==========
-async function seleccionarArticulosRelevantes(pregunta, articulos, leyId) {
-    if (!articulos || articulos.length === 0) return [];
-    
+// ========== RESPUESTA CON 70B (INTELIGENCIA MÁXIMA) ==========
+async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    if (articulos.length <= 20) {
-        console.log(`📚 Solo ${articulos.length} artículos, pasando todos al modelo`);
-        return articulos;
-    }
+    const mejores = candidatos.slice(0, 15);
     
-    const prompt = `
-    Eres un Juez experto en derecho venezolano. De la siguiente lista de artículos de la ${leyNombre}, selecciona los que son RELEVANTES para responder la pregunta del ciudadano.
-
-    Pregunta: "${pregunta}"
-
-    Artículos disponibles:
-    ${articulos.map((a, i) => `${i+1}. Artículo ${a.numero_articulo}: ${a.contenido.substring(0, 300)}...`).join('\n')}
-
-    Responde SOLO con un arreglo JSON de los números de los artículos seleccionados.
-    Ejemplo: [5, 14, 18]
-    `;
-
-    try {
-        const response = await groq.chat.completions.create({
-            messages: [{ role: 'user', content: prompt }],
-            model: 'llama-3.3-70b-versatile',
-            temperature: 0.1,
-            response_format: { type: "json_object" }
-        });
-
-        const result = safeJsonParse(response.choices[0].message.content);
-        const seleccionados = Array.isArray(result) ? result : (result.ids || result.articulos || []);
-
-        if (seleccionados.length === 0) {
-            console.log('⚠️ No se seleccionaron artículos, usando los primeros 10');
-            return articulos.slice(0, 10);
-        }
-
-        const articulosSeleccionados = articulos.filter((_, index) => 
-            seleccionados.includes(index + 1) || seleccionados.includes(articulos[index].id)
-        );
-
-        console.log(`📊 Artículos seleccionados: ${articulosSeleccionados.map(a => a.numero_articulo).join(', ')}`);
-        return articulosSeleccionados.length > 0 ? articulosSeleccionados : articulos.slice(0, 10);
-    } catch (error) {
-        console.error("Error en selección de artículos:", error);
-        return articulos.slice(0, 10);
-    }
-}
-
-// ========== GROQ: GENERAR RESPUESTA ==========
-async function generarRespuesta(pregunta, articulosSeleccionados, leyId) {
-    const leyNombre = LEY_MAP[leyId] || 'Ley';
-
     let contextoLegal = "";
-    if (articulosSeleccionados.length > 0) {
-        contextoLegal = articulosSeleccionados.map(a => 
-            `Artículo ${a.numero_articulo} de ${a.ley_nombre || leyNombre}: "${a.contenido}"`
-        ).join('\n\n');
-    } else {
-        contextoLegal = "No se encontraron artículos relevantes para esta consulta.";
+    for (let i = 0; i < mejores.length; i++) {
+        const a = mejores[i];
+        const texto = a.contenido.substring(0, 350);
+        contextoLegal += `\nArt. ${a.numero_articulo}: ${texto}...\n`;
     }
-
+    
     const systemPrompt = `
-Eres "LexnaVe", un asistente jurídico especializado en leyes venezolanas.
+Eres "LexnaVe", asistente jurídico experto en leyes venezolanas.
 
-⚠️ REGLAS ABSOLUTAS:
-1. SOLO puedes citar artículos que estén en el CONTEXTO LEGAL que se te proporciona.
-2. Cada afirmación debe ir acompañada de: "Según el Artículo X de la Ley Y: [texto literal entre comillas]"
-3. NO puedes inventar, interpretar ni dar opiniones personales.
-4. Si el contexto no contiene información suficiente, responde: "No tengo información suficiente en mi base de datos para responder esta consulta."
+⚠️ INSTRUCCIONES ESTRICTAS:
+1. Extrae palabras clave de la pregunta.
+2. Lee todos los artículos del contexto.
+3. Selecciona el artículo con MÁS coincidencias con las palabras clave.
+4. Cita el artículo TEXTUALMENTE entre comillas.
+5. NO inventes artículos. Si no encuentras, di "No tengo información suficiente".
 
-ESTRUCTURA DE RESPUESTA:
-1. INTRODUCCIÓN: Resumen de 2-3 líneas
-2. FUNDAMENTOS LEGALES: Artículos con texto literal
-3. ACCIONES RECOMENDADAS: Pasos prácticos (basados en la ley)
-4. ADVERTENCIA: "⚖️ Esto es orientación general. Consulta con un abogado."
+ESTRUCTURA OBLIGATORIA:
+1. INTRODUCCIÓN (2 líneas)
+2. "Según el Artículo X de la Ley Y: [texto literal]"
+3. Explicación breve
+4. ACCIONES RECOMENDADAS (3 pasos)
+5. ⚖️ Esto es orientación general. Consulta con un abogado.
 `;
 
     const promptFinal = `
-CONTEXTO LEGAL:
+CONTEXTO (${leyNombre}):
 ${contextoLegal}
 
-CONSULTA DEL USUARIO:
-"${pregunta}"
+PREGUNTA: "${pregunta}"
 
-INSTRUCCIÓN: Genera una respuesta siguiendo ESTRICTAMENTE la estructura y reglas indicadas.
+INSTRUCCIÓN: Responde con la estructura indicada.
 `;
 
     try {
@@ -426,14 +248,41 @@ INSTRUCCIÓN: Genera una respuesta siguiendo ESTRICTAMENTE la estructura y regla
             ],
             model: 'llama-3.3-70b-versatile',
             temperature: 0.2,
-            max_tokens: 3000
+            max_tokens: 800
         });
 
         return response.choices[0].message.content;
     } catch (error) {
         console.error("Error generando respuesta:", error);
-        return "⚠️ Se produjo un error al generar la respuesta. Por favor, intenta de nuevo.";
+        return "⚠️ Error al generar la respuesta. Intenta de nuevo.";
     }
+}
+
+// ========== VALIDAR CITAS ==========
+async function verificarCitasEnRespuesta(respuesta, candidatos) {
+    const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
+    const matches = respuesta.matchAll(regex);
+    const articulosMencionados = [...new Set([...matches].map(m => parseInt(m[1])))];
+    
+    if (articulosMencionados.length === 0) {
+        console.log('⚠️ No se encontraron citas');
+        return false;
+    }
+    
+    const idsContexto = [];
+    for (const art of candidatos) {
+        const num = art.numero_articulo.toString().replace(/\D/g, '');
+        if (num) idsContexto.push(parseInt(num));
+    }
+    
+    const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
+    if (invalidos.length > 0) {
+        console.log(`⚠️ Artículos alucinados: ${invalidos.join(', ')}`);
+        return false;
+    }
+    
+    console.log(`✅ Artículos citados existen en el contexto`);
+    return true;
 }
 
 // ========== ENDPOINT PRINCIPAL ==========
@@ -443,68 +292,61 @@ app.post('/api/consultar', async (req, res) => {
     console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
 
     try {
-        // 1. CLASIFICAR CONSULTA
+        // 1. CLASIFICAR CON 8B
         const clasificacion = await clasificarConsulta(pregunta);
-        let leyId = clasificacion.ley_id;
+        let leyId = clasificacion.ley_id || 3;
 
-        // Si no se detectó ley, intentar con 3 (Código Civil) como fallback
-        if (!leyId) {
-            console.log('⚠️ No se detectó ley, usando Código Civil (Ley 3) como fallback');
-            leyId = 3;
-        }
-
-        console.log(`🔍 Buscando en ley ${leyId} (${LEY_MAP[leyId]})`);
+        console.log(`🔍 Buscando en ${LEY_MAP[leyId]}`);
         
-        // 2. BÚSQUEDA HÍBRIDA EN LA LEY DETECTADA
-        let articulosEncontrados = await buscarArticulosHibrido(pregunta, leyId, 50);
+        // 2. BÚSQUEDA VECTORIAL
+        let articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 50);
 
-        // 3. SI NO ENCUENTRA RESULTADOS, BUSCAR EN TODAS LAS LEYES
         if (articulosEncontrados.length === 0) {
-            console.log('🔄 No se encontraron resultados en la ley detectada. Buscando en todas las leyes...');
+            console.log('🔄 Buscando en todas las leyes...');
             articulosEncontrados = await buscarPorSimilitud(pregunta, null, 50);
-            
             if (articulosEncontrados.length > 0) {
                 leyId = articulosEncontrados[0].ley_id;
-                console.log(`✅ Artículos encontrados en ${LEY_MAP[leyId]}`);
             }
         }
 
         if (articulosEncontrados.length === 0) {
             return res.json({
-                respuesta: "⚠️ No encontré artículos relevantes en mi base de datos para tu consulta. Te recomiendo reformular la pregunta o consultar con un abogado."
+                respuesta: "⚠️ No encontré artículos relevantes. Consulta con un abogado."
             });
         }
 
-        console.log(`📚 Total artículos encontrados: ${articulosEncontrados.length}`);
+        console.log(`📚 ${articulosEncontrados.length} artículos encontrados`);
 
-        // 4. SELECCIONAR ARTÍCULOS RELEVANTES CON GROQ
-        const articulosRelevantes = await seleccionarArticulosRelevantes(
-            pregunta, 
-            articulosEncontrados, 
-            leyId
-        );
+        // 3. GENERAR RESPUESTA CON 70B
+        let respuesta = await generarRespuestaDirecta(pregunta, articulosEncontrados, leyId);
 
-        if (articulosRelevantes.length === 0) {
-            return res.json({
-                respuesta: "⚠️ No encontré artículos relevantes para tu consulta. Te recomiendo consultar con un abogado especializado."
-            });
+        // 4. VALIDAR CITAS
+        const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosEncontrados);
+
+        if (!citasValidas) {
+            console.log('⚠️ Regenerando...');
+            const masCandidatos = await buscarPorSimilitud(pregunta, leyId, 80);
+            if (masCandidatos.length > articulosEncontrados.length) {
+                respuesta = await generarRespuestaDirecta(pregunta, masCandidatos, leyId);
+                const citasValidas2 = await verificarCitasEnRespuesta(respuesta, masCandidatos);
+                if (!citasValidas2) {
+                    return res.json({
+                        respuesta: "⚠️ No tengo información suficiente. Consulta con un abogado."
+                    });
+                }
+            } else {
+                return res.json({
+                    respuesta: "⚠️ No tengo información suficiente. Consulta con un abogado."
+                });
+            }
         }
-
-        console.log(`📊 Artículos relevantes: ${articulosRelevantes.map(a => a.numero_articulo).join(', ')}`);
-
-        // 5. GENERAR RESPUESTA
-        const respuesta = await generarRespuesta(
-            pregunta, 
-            articulosRelevantes, 
-            leyId
-        );
 
         res.json({ respuesta });
 
     } catch (error) {
-        console.error(`❌ Error crítico:`, error);
+        console.error(`❌ Error:`, error);
         res.status(500).json({
-            respuesta: "⚠️ Se produjo un error procesal en el servidor de LexnaVe. Por favor, reintente su consulta."
+            respuesta: "⚠️ Error en el servidor. Intenta de nuevo."
         });
     }
 });
