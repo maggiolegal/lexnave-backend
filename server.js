@@ -71,7 +71,6 @@ function cargarAprendizaje() {
             learningData = JSON.parse(data);
             console.log(`📚 Aprendizaje cargado: ${Object.keys(learningData.patrones || {}).length} patrones`);
         } else {
-            // Inicializar con patrones forzados
             learningData = {
                 patrones: { ...PATRONES_INICIALES },
                 correcciones: {},
@@ -175,9 +174,18 @@ let embedder = null;
 
 async function initEmbedder() {
     if (!embedder) {
-        console.log('🔄 Cargando modelo de embeddings...');
-        embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-        console.log('✅ Modelo de embeddings cargado');
+        console.log('🔄 Cargando modelo de embeddings (Supabase/gte-small)...');
+        try {
+            // Intentar cargar el modelo más ligero
+            embedder = await pipeline('feature-extraction', 'Supabase/gte-small', {
+                device: 'wasm', // Usar wasm para evitar problemas con onnxruntime-node
+            });
+            console.log('✅ Modelo de embeddings cargado correctamente');
+        } catch (error) {
+            console.error('❌ Error cargando modelo Supabase/gte-small:', error.message);
+            console.log('⚠️ Intentando con fallback a búsqueda por palabras clave...');
+            embedder = null;
+        }
     }
     return embedder;
 }
@@ -201,10 +209,14 @@ function safeJsonParse(rawText) {
 
 // ========== GENERAR EMBEDDING ==========
 async function generarEmbedding(texto) {
+    if (!embedder) {
+        console.log('⚠️ Embedder no disponible, usando palabras clave');
+        return null;
+    }
+    
     try {
-        const model = await initEmbedder();
         const textoTruncado = texto.length > 500 ? texto.substring(0, 500) : texto;
-        const result = await model(textoTruncado, { pooling: 'mean', normalize: true });
+        const result = await embedder(textoTruncado, { pooling: 'mean', normalize: true });
         return Array.from(result.data);
     } catch (error) {
         console.error('❌ Error generando embedding:', error.message);
@@ -237,30 +249,36 @@ async function buscarCandidatos(pregunta, leyId = null, limite = 50) {
         }
     }
     
-    // 2. BÚSQUEDA SEMÁNTICA (embeddings)
-    const embedding = await generarEmbedding(pregunta);
-    if (embedding) {
-        const { data } = await supabase.rpc('match_articles', {
-            query_embedding: embedding,
-            match_ley_id: leyId || 0,
-            match_threshold: 0.1,
-            match_count: limite
-        });
-        
-        if (data) {
-            const idsExistentes = new Set(resultados.map(r => r.id));
-            for (const art of data) {
-                if (!idsExistentes.has(art.id)) {
-                    resultados.push({
-                        id: art.id,
-                        numero_articulo: art.numero_articulo,
-                        contenido: art.contenido,
-                        ley_id: art.ley_id,
-                        ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
-                        similitud: art.similarity || 0
-                    });
-                    idsExistentes.add(art.id);
+    // 2. BÚSQUEDA SEMÁNTICA (embeddings) - solo si embedder está disponible
+    if (embedder) {
+        const embedding = await generarEmbedding(pregunta);
+        if (embedding) {
+            try {
+                const { data } = await supabase.rpc('match_articles', {
+                    query_embedding: embedding,
+                    match_ley_id: leyId || 0,
+                    match_threshold: 0.1,
+                    match_count: limite
+                });
+                
+                if (data) {
+                    const idsExistentes = new Set(resultados.map(r => r.id));
+                    for (const art of data) {
+                        if (!idsExistentes.has(art.id)) {
+                            resultados.push({
+                                id: art.id,
+                                numero_articulo: art.numero_articulo,
+                                contenido: art.contenido,
+                                ley_id: art.ley_id,
+                                ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
+                                similitud: art.similarity || 0
+                            });
+                            idsExistentes.add(art.id);
+                        }
+                    }
                 }
+            } catch (error) {
+                console.error('❌ Error en búsqueda semántica:', error.message);
             }
         }
     }
@@ -306,15 +324,15 @@ async function clasificarConsulta(pregunta) {
 async function generarRespuestaDirecta(pregunta, candidatos, leyId, articuloAprendido = null) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    // Seleccionar los 10 mejores candidatos y truncar contenido
+    // Seleccionar los 8 mejores candidatos y truncar contenido
     const mejores = candidatos
         .sort((a, b) => b.similitud - a.similitud)
-        .slice(0, 10);
+        .slice(0, 8);
     
     let contextoLegal = "";
     for (let i = 0; i < mejores.length; i++) {
         const a = mejores[i];
-        const texto = a.contenido.substring(0, 400);
+        const texto = a.contenido.substring(0, 350);
         contextoLegal += `\nArt. ${a.numero_articulo} (${(a.similitud || 0).toFixed(2)}): ${texto}...\n`;
     }
     
@@ -345,7 +363,7 @@ async function generarRespuestaDirecta(pregunta, candidatos, leyId, articuloApre
             messages: [{ role: 'user', content: prompt }],
             model: 'llama-3.3-70b-versatile',
             temperature: 0.2,
-            max_tokens: 1000
+            max_tokens: 800
         });
         return response.choices[0].message.content;
     } catch (error) {
@@ -438,6 +456,16 @@ app.post('/api/consultar', async (req, res) => {
     }
 });
 
+// ========== ENDPOINT DE ESTADO ==========
+app.get('/api/estado', async (req, res) => {
+    res.json({
+        estado: 'online',
+        patrones_aprendidos: Object.keys(learningData.patrones || {}).length,
+        embedder_cargado: embedder !== null,
+        leyes_disponibles: Object.keys(LEY_MAP).length
+    });
+});
+
 // ========== INICIO DEL SERVIDOR ==========
 const PORT = process.env.PORT || 10000;
 
@@ -448,4 +476,6 @@ app.listen(PORT, async () => {
     await initEmbedder();
     console.log(`🚀 Servidor activo en puerto ${PORT}`);
     console.log(`🧠 Patrones de aprendizaje: ${Object.keys(learningData.patrones || {}).length}`);
+    console.log(`📚 ${Object.keys(LEY_MAP).length} leyes disponibles`);
+    console.log(`🔍 Embedder: ${embedder ? '✅ Cargado' : '❌ No disponible (usando palabras clave)'}`);
 });
