@@ -33,9 +33,34 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
-// ========== ARTÍCULOS CLAVE POR LEY ==========
+// ========== ARTÍCULOS CLAVE POR LEY (COMPLETO) ==========
 const ARTICULOS_CLAVE = {
-    // Ley 3: Código Civil
+    // ===== LEY 1: CRBV =====
+    1: {
+        'amparo': ['26', '27', '49'],
+        'derecho propiedad': ['115'],
+        'estado excepcion': ['337', '338', '339'],
+        'debido proceso': ['49'],
+        'derechos humanos': ['19', '20', '21', '22', '23'],
+        'libertad expresion': ['57'],
+        'libertad transito': ['50'],
+        'derecho trabajo': ['87', '88', '89'],
+        'derecho salud': ['83', '84'],
+        'derecho educacion': ['102', '103'],
+        'derecho vivienda': ['82']
+    },
+    
+    // ===== LEY 2: LPH =====
+    2: {
+        'propiedad horizontal': ['5', '7', '8', '9', '14'],
+        'condominio': ['5', '7', '8', '9', '14'],
+        'cuotas mantenimiento': ['14', '7', '5'],
+        'administrador': ['18', '19', '20', '21'],
+        'junta condominio': ['18', '19'],
+        'asamblea copropietarios': ['18', '19', '22', '23', '24']
+    },
+    
+    // ===== LEY 3: CÓDIGO CIVIL =====
     3: {
         'prescripcion': ['1969', '1950', '1951', '1952'],
         'plazo prescripcion': ['1969'],
@@ -44,45 +69,149 @@ const ARTICULOS_CLAVE = {
         'responsabilidad civil': ['1185', '1190'],
         'servidumbre': ['571', '572', '573', '574', '575', '576', '577'],
         'vias de hecho': ['548'],
-        'contrato': ['1137', '1140', '1145']
+        'contrato': ['1137', '1140', '1145'],
+        'arrendamiento': ['1576', '1577', '1578'],
+        'matrimonio': ['82', '83', '84', '85', '86', '87', '88'],
+        'divorcio': ['185', '186', '187'],
+        'herencia': ['991', '992', '993', '994'],
+        'testamento': ['991', '992', '993', '994'],
+        'usucapion': ['1977', '1978']
     },
-    // Ley 2: LPH
-    2: {
-        'propiedad horizontal': ['5', '7', '8', '9', '14'],
-        'condominio': ['5', '7', '8', '9', '14'],
-        'cuotas mantenimiento': ['14', '7', '5']
-    },
-    // Ley 1: CRBV
-    1: {
-        'amparo': ['26', '27', '49'],
-        'derecho propiedad': ['115'],
-        'estado excepcion': ['337', '338', '339']
-    },
-    // Ley 5: COPP
-    5: {
-        'flagrancia': ['373'],
-        'detencion': ['373', '374', '375'],
-        'presentacion juez': ['373']
-    },
-    // Ley 7: CPC
-    7: {
-        'intimacion': ['640', '641', '642'],
-        'procedimiento civil': ['340', '341', '342']
-    },
-    // Ley 4: Código de Comercio
+    
+    // ===== LEY 4: CÓDIGO DE COMERCIO =====
     4: {
         'letra cambio': ['410'],
         'requisitos letra': ['410'],
         'comercio': ['2', '5', '10'],
-        'pagare': ['410']
+        'pagare': ['410'],
+        'cheque': ['410'],
+        'sociedad mercantil': ['200', '201', '202'],
+        'empresa': ['2', '5', '10']
     },
-    // Ley 8: Arrendamiento Vivienda
+    
+    // ===== LEY 5: COPP (COMPLETO) =====
+    5: {
+        // Detención y Flagrancia
+        'flagrancia': ['373'],
+        'detencion': ['373', '374', '375'],
+        'presentacion juez': ['373'],
+        'aprehension': ['373', '374'],
+        'plazo detencion': ['373'],
+        
+        // Medidas de Coerción
+        'medidas cautelares': ['236', '237', '238'],
+        'privacion libertad': ['236', '237', '238'],
+        'libertad provisional': ['242', '243', '244'],
+        'fianza': ['244', '245'],
+        'caución': ['244', '245'],
+        
+        // Procedimiento
+        'procedimiento abreviado': ['372', '373'],
+        'procedimiento ordinario': ['373'],
+        'juicio oral': ['332', '333', '334'],
+        'audiencia preliminar': ['309', '310'],
+        'acto conclusivo': ['295'],
+        
+        // Fase Preparatoria
+        'fase preparatoria': ['295'],
+        'investigacion': ['295', '296'],
+        'imputacion': ['295'],
+        'fiscalia': ['295', '373'],
+        
+        // Delitos
+        'homicidio': ['405', '406'],
+        'violacion': ['374', '375'],
+        'secuestro': ['374', '375'],
+        'robo': ['374', '375'],
+        'hurto': ['374', '375'],
+        'lesiones': ['374', '375'],
+        
+        // Derechos del Imputado
+        'derecho defensa': ['8', '9', '10'],
+        'presuncion inocencia': ['8'],
+        'debido proceso penal': ['8', '9'],
+        
+        // Recursos
+        'apelacion': ['438', '439'],
+        'recurso': ['438', '439']
+    },
+    
+    // ===== LEY 6: CÓDIGO PENAL (COMPLETO) =====
+    6: {
+        // Delitos Contra la Propiedad
+        'hurto': ['451', '452', '453'],
+        'robo': ['455', '456', '457'],
+        'robo agravado': ['456', '457'],
+        'hurto agravado': ['452', '453'],
+        'estafa': ['461', '462'],
+        'fraude': ['461', '462'],
+        'apropiacion indebida': ['465', '466'],
+        
+        // Delitos Contra las Personas
+        'homicidio': ['405', '406'],
+        'homicidio calificado': ['406'],
+        'homicidio culposo': ['409'],
+        'lesiones': ['413', '414'],
+        'lesiones graves': ['414'],
+        'lesiones culposas': ['415'],
+        'violacion': ['374', '375'],
+        'abuso sexual': ['375', '376'],
+        
+        // Delitos Contra la Libertad
+        'secuestro': ['460'],
+        'extorsion': ['460'],
+        'coaccion': ['460'],
+        'amenaza': ['460'],
+        
+        // Delitos Contra la Administración
+        'corrupcion': ['60', '61', '62'],
+        'peculado': ['63', '64'],
+        'malversacion': ['63', '64'],
+        'concusion': ['65', '66'],
+        'cohecho': ['67', '68'],
+        'prevaricacion': ['70', '71'],
+        
+        // Delitos Contra la Fe Pública
+        'falsificacion': ['450'],
+        'falsedad': ['450'],
+        'perjurio': ['450'],
+        
+        // Delitos Económicos
+        'contrabando': ['460'],
+        'tráfico drogas': ['460'],
+        'legitimacion capitales': ['460'],
+        
+        // Penas
+        'pena': ['451', '455', '405', '406'],
+        'prision': ['451', '455', '405', '406'],
+        'presidio': ['451', '455', '405', '406'],
+        
+        // Circunstancias
+        'reincidencia': ['26'],
+        'atenuantes': ['27', '28', '29'],
+        'agravantes': ['30', '31']
+    },
+    
+    // ===== LEY 7: CPC =====
+    7: {
+        'intimacion': ['640', '641', '642'],
+        'procedimiento civil': ['340', '341', '342'],
+        'demanda': ['340'],
+        'juicio': ['340', '341'],
+        'apelacion': ['340', '341']
+    },
+    
+    // ===== LEY 8: ARRENDAMIENTO VIVIENDA =====
     8: {
-        'arrendamiento vivienda': ['1', '2', '3', '4', '5']
+        'arrendamiento vivienda': ['1', '2', '3', '4', '5'],
+        'canon': ['1', '2', '3'],
+        'desalojo': ['20', '21', '22']
     },
-    // Ley 9: Violencia Mujer
+    
+    // ===== LEY 9: VIOLENCIA MUJER =====
     9: {
-        'violencia mujer': ['1', '2', '3']
+        'violencia mujer': ['1', '2', '3'],
+        'violencia genero': ['1', '2', '3']
     }
 };
 
@@ -206,7 +335,7 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== BUSCAR ARTÍCULO CLAVE EN UNA LEY ESPECÍFICA ==========
+// ========== BUSCAR ARTÍCULO CLAVE ==========
 async function buscarArticuloClave(leyId, numeroArticulo) {
     try {
         const { data, error } = await supabase
@@ -233,7 +362,7 @@ async function buscarArticuloClave(leyId, numeroArticulo) {
     }
 }
 
-// ========== BÚSQUEDA HÍBRIDA (CORREGIDA) ==========
+// ========== BÚSQUEDA HÍBRIDA ==========
 async function buscarArticulosHibrido(pregunta, leyId, limite = 50) {
     let resultados = [];
     let articulosClaveEncontrados = [];
@@ -261,11 +390,11 @@ async function buscarArticulosHibrido(pregunta, leyId, limite = 50) {
         }
     }
     
-    // 2. BÚSQUEDA VECTORIAL EN LA LEY DETECTADA
+    // 2. BÚSQUEDA VECTORIAL
     const vectoriales = await buscarPorSimilitud(pregunta, leyId, limite);
     console.log(`📊 Vectorial en ley ${leyId}: ${vectoriales.length} resultados`);
     
-    // 3. COMBINAR: Primero artículos clave, luego vectoriales
+    // 3. COMBINAR
     if (articulosClaveEncontrados.length > 0) {
         const idsClave = new Set(articulosClaveEncontrados.map(a => a.id));
         const vectorialesFiltrados = vectoriales.filter(a => !idsClave.has(a.id));
@@ -293,12 +422,13 @@ async function clasificarConsulta(pregunta) {
     Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
     
     CRITERIOS DE CLASIFICACIÓN:
-    - "Prescripción", "plazo", "daños", "perjuicios", "responsabilidad civil", "accidente" → Código Civil (Ley 3)
-    - "Letra de cambio", "requisitos letra", "pagare" → Código de Comercio (Ley 4)
+    - "Prescripción", "plazo", "daños", "perjuicios", "responsabilidad civil" → Código Civil (Ley 3)
+    - "Hurto", "robo", "pena", "prisión", "delito" → Código Penal (Ley 6)
+    - "Detención", "flagrancia", "fiscal", "juez" → COPP (Ley 5)
+    - "Letra de cambio", "comercio", "sociedad", "empresa" → Código de Comercio (Ley 4)
     - "Propiedad horizontal", "condominio", "vecino", "cuotas" → LPH (Ley 2)
-    - "Constitución", "derechos humanos", "amparo", "estado excepción" → CRBV (Ley 1)
-    - "Detención", "flagrancia", "penal" → COPP (Ley 5)
-    - "Procesal", "procedimiento", "juicio", "intimación" → CPC (Ley 7)
+    - "Constitución", "amparo", "derechos humanos" → CRBV (Ley 1)
+    - "Procedimiento", "juicio", "demanda" → CPC (Ley 7)
     - "Arrendamiento vivienda" → Ley 8
     - "Violencia mujer" → Ley 9
 
