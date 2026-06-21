@@ -33,41 +33,57 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
-// ========== ARTÍCULOS CLAVE POR TEMA (MEJORADO) ==========
+// ========== ARTÍCULOS CLAVE POR LEY ==========
 const ARTICULOS_CLAVE = {
-    // Código Civil (Ley 3)
-    'prescripcion': { ley: 3, articulos: ['1969', '1950', '1951', '1952'] },
-    'plazo prescripcion': { ley: 3, articulos: ['1969'] },
-    'daños y perjuicios': { ley: 3, articulos: ['1185', '1190', '1810', '1969'] },
-    'accidente transito': { ley: 3, articulos: ['1185', '1810', '1969'] },
-    'responsabilidad civil': { ley: 3, articulos: ['1185', '1190'] },
-    'servidumbre': { ley: 3, articulos: ['571', '572', '573', '574', '575', '576', '577'] },
-    'vias de hecho': { ley: 3, articulos: ['548'] },
-    'contrato': { ley: 3, articulos: ['1137', '1140', '1145'] },
-    'arrendamiento': { ley: 3, articulos: ['1576', '1577', '1578'] },
-    
-    // LPH (Ley 2)
-    'propiedad horizontal': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
-    'condominio': { ley: 2, articulos: ['5', '7', '8', '9', '14'] },
-    'cuotas mantenimiento': { ley: 2, articulos: ['14', '7', '5'] },
-    
-    // CRBV (Ley 1)
-    'amparo': { ley: 1, articulos: ['26', '27', '49'] },
-    'derecho propiedad': { ley: 1, articulos: ['115'] },
-    'estado excepcion': { ley: 1, articulos: ['337', '338', '339'] },
-    
-    // COPP (Ley 5)
-    'flagrancia': { ley: 5, articulos: ['373'] },
-    'detencion': { ley: 5, articulos: ['373', '374', '375'] },
-    'presentacion juez': { ley: 5, articulos: ['373'] },
-    
-    // CPC (Ley 7)
-    'intimacion': { ley: 7, articulos: ['640', '641', '642'] },
-    'procedimiento civil': { ley: 7, articulos: ['340', '341', '342'] },
-    
-    // Código de Comercio (Ley 4)
-    'letra cambio': { ley: 4, articulos: ['410'] },
-    'comercio': { ley: 4, articulos: ['2', '5', '10'] }
+    // Ley 3: Código Civil
+    3: {
+        'prescripcion': ['1969', '1950', '1951', '1952'],
+        'plazo prescripcion': ['1969'],
+        'daños y perjuicios': ['1185', '1190', '1810', '1969'],
+        'accidente transito': ['1185', '1810', '1969'],
+        'responsabilidad civil': ['1185', '1190'],
+        'servidumbre': ['571', '572', '573', '574', '575', '576', '577'],
+        'vias de hecho': ['548'],
+        'contrato': ['1137', '1140', '1145']
+    },
+    // Ley 2: LPH
+    2: {
+        'propiedad horizontal': ['5', '7', '8', '9', '14'],
+        'condominio': ['5', '7', '8', '9', '14'],
+        'cuotas mantenimiento': ['14', '7', '5']
+    },
+    // Ley 1: CRBV
+    1: {
+        'amparo': ['26', '27', '49'],
+        'derecho propiedad': ['115'],
+        'estado excepcion': ['337', '338', '339']
+    },
+    // Ley 5: COPP
+    5: {
+        'flagrancia': ['373'],
+        'detencion': ['373', '374', '375'],
+        'presentacion juez': ['373']
+    },
+    // Ley 7: CPC
+    7: {
+        'intimacion': ['640', '641', '642'],
+        'procedimiento civil': ['340', '341', '342']
+    },
+    // Ley 4: Código de Comercio
+    4: {
+        'letra cambio': ['410'],
+        'requisitos letra': ['410'],
+        'comercio': ['2', '5', '10'],
+        'pagare': ['410']
+    },
+    // Ley 8: Arrendamiento Vivienda
+    8: {
+        'arrendamiento vivienda': ['1', '2', '3', '4', '5']
+    },
+    // Ley 9: Violencia Mujer
+    9: {
+        'violencia mujer': ['1', '2', '3']
+    }
 };
 
 // ========== MODELO DE EMBEDDING LOCAL ==========
@@ -99,7 +115,7 @@ function safeJsonParse(rawText) {
     }
 }
 
-// ========== GENERAR EMBEDDING DE LA PREGUNTA ==========
+// ========== GENERAR EMBEDDING ==========
 async function generarEmbedding(texto) {
     try {
         const model = await initEmbedder();
@@ -114,7 +130,7 @@ async function generarEmbedding(texto) {
     }
 }
 
-// ========== BÚSQUEDA VECTORIAL EN SUPABASE (UMBRAL REDUCIDO) ==========
+// ========== BÚSQUEDA POR SIMILITUD ==========
 async function buscarPorSimilitud(pregunta, leyId = null, limite = 50) {
     try {
         const embedding = await generarEmbedding(pregunta);
@@ -190,10 +206,9 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== BÚSQUEDA FLEXIBLE DE ARTÍCULOS CLAVE ==========
+// ========== BUSCAR ARTÍCULO CLAVE EN UNA LEY ESPECÍFICA ==========
 async function buscarArticuloClave(leyId, numeroArticulo) {
     try {
-        // BÚSQUEDA FLEXIBLE: ilike para capturar variaciones de formato
         const { data, error } = await supabase
             .from('articulos')
             .select('id, numero_articulo, contenido, ley_id')
@@ -218,36 +233,37 @@ async function buscarArticuloClave(leyId, numeroArticulo) {
     }
 }
 
-// ========== BÚSQUEDA HÍBRIDA: VECTORIAL + KEYWORDS + ARTÍCULOS CLAVE ==========
-async function buscarArticulosHibrido(pregunta, leyId = null, limite = 50) {
+// ========== BÚSQUEDA HÍBRIDA (CORREGIDA) ==========
+async function buscarArticulosHibrido(pregunta, leyId, limite = 50) {
     let resultados = [];
     let articulosClaveEncontrados = [];
     
-    // 1. DETECTAR TEMAS Y BUSCAR ARTÍCULOS CLAVE PRIMERO
     const preguntaLower = pregunta.toLowerCase();
-    let leyUsar = leyId;
     
-    for (const [tema, info] of Object.entries(ARTICULOS_CLAVE)) {
-        if (preguntaLower.includes(tema) || 
-            tema.split(' ').some(palabra => preguntaLower.includes(palabra))) {
-            console.log(`🔑 Tema detectado: "${tema}"`);
-            leyUsar = info.ley;
-            
-            // Buscar cada artículo clave con búsqueda flexible
-            for (const numArt of info.articulos) {
-                const articulo = await buscarArticuloClave(info.ley, numArt);
-                if (articulo) {
-                    articulosClaveEncontrados.push(articulo);
-                    console.log(`✅ Artículo clave encontrado: Art. ${numArt} de ${LEY_MAP[info.ley]}`);
+    // 1. BUSCAR ARTÍCULOS CLAVE SOLO EN LA LEY DETECTADA
+    if (leyId && ARTICULOS_CLAVE[leyId]) {
+        const temasDeLaLey = ARTICULOS_CLAVE[leyId];
+        
+        for (const [tema, articulos] of Object.entries(temasDeLaLey)) {
+            if (preguntaLower.includes(tema) || 
+                tema.split(' ').some(palabra => preguntaLower.includes(palabra))) {
+                console.log(`🔑 Tema detectado en ley ${leyId}: "${tema}"`);
+                
+                for (const numArt of articulos) {
+                    const articulo = await buscarArticuloClave(leyId, numArt);
+                    if (articulo) {
+                        articulosClaveEncontrados.push(articulo);
+                        console.log(`✅ Artículo clave encontrado: Art. ${numArt} de ${LEY_MAP[leyId]}`);
+                    }
                 }
+                break;
             }
-            break;
         }
     }
     
-    // 2. BÚSQUEDA VECTORIAL
-    const vectoriales = await buscarPorSimilitud(pregunta, leyUsar, limite);
-    console.log(`📊 Vectorial: ${vectoriales.length} resultados`);
+    // 2. BÚSQUEDA VECTORIAL EN LA LEY DETECTADA
+    const vectoriales = await buscarPorSimilitud(pregunta, leyId, limite);
+    console.log(`📊 Vectorial en ley ${leyId}: ${vectoriales.length} resultados`);
     
     // 3. COMBINAR: Primero artículos clave, luego vectoriales
     if (articulosClaveEncontrados.length > 0) {
@@ -262,7 +278,7 @@ async function buscarArticulosHibrido(pregunta, leyId = null, limite = 50) {
     // 4. SI AÚN HAY POCOS RESULTADOS, BUSCAR POR TEXTO
     if (resultados.length < 5) {
         console.log('🔍 Pocos resultados. Activando búsqueda textual...');
-        const textuales = await buscarPorTexto(pregunta, leyUsar, 20);
+        const textuales = await buscarPorTexto(pregunta, leyId, 20);
         const idsExistentes = new Set(resultados.map(a => a.id));
         const textualesFiltrados = textuales.filter(a => !idsExistentes.has(a.id));
         resultados = [...resultados, ...textualesFiltrados];
@@ -278,37 +294,21 @@ async function clasificarConsulta(pregunta) {
     
     CRITERIOS DE CLASIFICACIÓN:
     - "Prescripción", "plazo", "daños", "perjuicios", "responsabilidad civil", "accidente" → Código Civil (Ley 3)
-    - "Contrato", "arrendamiento", "alquiler" → Código Civil (Ley 3) o Ley Arrendamiento (Ley 8)
-    - "Propiedad horizontal", "condominio", "vecino" → LPH (Ley 2)
+    - "Letra de cambio", "requisitos letra", "pagare" → Código de Comercio (Ley 4)
+    - "Propiedad horizontal", "condominio", "vecino", "cuotas" → LPH (Ley 2)
     - "Constitución", "derechos humanos", "amparo", "estado excepción" → CRBV (Ley 1)
-    - "Comercio", "sociedad", "empresa", "letra cambio" → Código de Comercio (Ley 4)
+    - "Detención", "flagrancia", "penal" → COPP (Ley 5)
     - "Procesal", "procedimiento", "juicio", "intimación" → CPC (Ley 7)
-    - "Penal", "delito", "crimen", "detención" → COPP (Ley 5) o Código Penal (Ley 6)
     - "Arrendamiento vivienda" → Ley 8
     - "Violencia mujer" → Ley 9
 
     Leyes disponibles:
-    1: CRBV (Constitución)
-    2: LPH (Ley de Propiedad Horizontal)
-    3: CCV (Código Civil)
-    4: CCom (Código de Comercio)
-    5: COPP (Código Orgánico Procesal Penal)
-    6: CP (Código Penal)
-    7: CPC (Código de Procedimiento Civil)
-    8: Arrendamiento Vivienda
-    9: Violencia Mujer
-    10: Arrendamiento Comercial
-    11: Registros
+    1: CRBV, 2: LPH, 3: Código Civil, 4: Código de Comercio, 5: COPP, 6: Código Penal, 7: CPC, 8: Arrendamiento Vivienda, 9: Violencia Mujer, 10: Arrendamiento Comercial, 11: Registros
 
     Consulta: "${pregunta}"
 
     Responde SOLO con JSON:
-    {
-        "ley_id": número de la ley principal,
-        "articulo_num": número de artículo si se menciona específicamente (o null),
-        "tema": "descripción breve del tema legal",
-        "confianza": "alta/media/baja"
-    }
+    {"ley_id": número, "tema": "descripción breve", "confianza": "alta/media/baja"}
     `;
 
     try {
@@ -320,11 +320,11 @@ async function clasificarConsulta(pregunta) {
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación: Ley ${result.ley_id} (${LEY_MAP[result.ley_id] || 'Desconocida'}), Confianza: ${result.confianza}, Tema: ${result.tema}`);
+        console.log(`📋 Clasificación: Ley ${result.ley_id} (${LEY_MAP[result.ley_id] || 'Desconocida'}), Confianza: ${result.confianza}`);
         return result;
     } catch (error) {
         console.error("Error en clasificación:", error);
-        return { ley_id: null, articulo_num: null, tema: null, confianza: 'baja' };
+        return { ley_id: null, tema: null, confianza: 'baja' };
     }
 }
 
@@ -379,7 +379,7 @@ async function seleccionarArticulosRelevantes(pregunta, articulos, leyId) {
     }
 }
 
-// ========== GROQ: GENERAR RESPUESTA FINAL ==========
+// ========== GROQ: GENERAR RESPUESTA ==========
 async function generarRespuesta(pregunta, articulosSeleccionados, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
 
@@ -447,18 +447,21 @@ app.post('/api/consultar', async (req, res) => {
         const clasificacion = await clasificarConsulta(pregunta);
         let leyId = clasificacion.ley_id;
 
-        // 2. BÚSQUEDA HÍBRIDA
-        let articulosEncontrados = [];
-        
-        if (leyId) {
-            console.log(`🔍 Buscando en ley ${leyId} (${LEY_MAP[leyId]})`);
-            articulosEncontrados = await buscarArticulosHibrido(pregunta, leyId, 50);
+        // Si no se detectó ley, intentar con 3 (Código Civil) como fallback
+        if (!leyId) {
+            console.log('⚠️ No se detectó ley, usando Código Civil (Ley 3) como fallback');
+            leyId = 3;
         }
+
+        console.log(`🔍 Buscando en ley ${leyId} (${LEY_MAP[leyId]})`);
+        
+        // 2. BÚSQUEDA HÍBRIDA EN LA LEY DETECTADA
+        let articulosEncontrados = await buscarArticulosHibrido(pregunta, leyId, 50);
 
         // 3. SI NO ENCUENTRA RESULTADOS, BUSCAR EN TODAS LAS LEYES
         if (articulosEncontrados.length === 0) {
             console.log('🔄 No se encontraron resultados en la ley detectada. Buscando en todas las leyes...');
-            articulosEncontrados = await buscarArticulosHibrido(pregunta, null, 50);
+            articulosEncontrados = await buscarPorSimilitud(pregunta, null, 50);
             
             if (articulosEncontrados.length > 0) {
                 leyId = articulosEncontrados[0].ley_id;
@@ -489,7 +492,7 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📊 Artículos relevantes: ${articulosRelevantes.map(a => a.numero_articulo).join(', ')}`);
 
-        // 5. GENERAR RESPUESTA FINAL (SIN VALIDADOR BLOQUEANTE)
+        // 5. GENERAR RESPUESTA
         const respuesta = await generarRespuesta(
             pregunta, 
             articulosRelevantes, 
