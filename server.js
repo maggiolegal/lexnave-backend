@@ -192,7 +192,7 @@ async function clasificarConsulta(pregunta) {
 
     try {
         const response = await openrouter.chat.completions.create({
-            model: 'meta-llama/llama-3.3-70b-instruct:free',
+            model: 'qwen/qwen-2.5-72b-instruct:free',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.1,
             max_tokens: 150
@@ -251,7 +251,7 @@ INSTRUCCIÓN: Responde con la estructura indicada.
 
     try {
         const response = await openrouter.chat.completions.create({
-            model: 'meta-llama/llama-3.3-70b-instruct:free',
+            model: 'qwen/qwen-2.5-72b-instruct:free',
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: promptFinal }
