@@ -77,8 +77,8 @@ async function generarEmbedding(texto) {
     }
 }
 
-// ========== BÚSQUEDA POR SIMILITUD ==========
-async function buscarPorSimilitud(pregunta, leyId = null, limite = 50) {
+// ========== BÚSQUEDA POR SIMILITUD (OPTIMIZADA) ==========
+async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
     try {
         const embedding = await generarEmbedding(pregunta);
         
@@ -117,7 +117,7 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 50) {
 }
 
 // ========== BÚSQUEDA POR TEXTO (FALLBACK) ==========
-async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
+async function buscarPorTexto(pregunta, leyId = null, limite = 30) {
     try {
         const query = supabase
             .from('articulos')
@@ -187,7 +187,8 @@ async function clasificarConsulta(pregunta) {
             messages: [{ role: 'user', content: prompt }],
             model: 'llama-3.3-70b-versatile',
             temperature: 0.1,
-            response_format: { type: "json_object" }
+            response_format: { type: "json_object" },
+            max_tokens: 100
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
@@ -199,50 +200,46 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== GROQ: GENERAR RESPUESTA DIRECTA CON PROMPT MEJORADO ==========
+// ========== GROQ: GENERAR RESPUESTA DIRECTA (OPTIMIZADA) ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    // Tomar los mejores 20 candidatos
-    const mejores = candidatos.slice(0, 20);
+    // Tomar los 12 mejores candidatos (reducido de 20)
+    const mejores = candidatos.slice(0, 12);
     
-    // Construir contexto con los artículos completos
+    // Construir contexto con 350 caracteres (reducido de 500)
     let contextoLegal = "";
     for (let i = 0; i < mejores.length; i++) {
         const a = mejores[i];
-        const texto = a.contenido.substring(0, 500);
-        contextoLegal += `\nArtículo ${a.numero_articulo} (similitud: ${(a.similitud || 0).toFixed(2)}):\n${texto}...\n`;
+        const texto = a.contenido.substring(0, 350);
+        contextoLegal += `\nArt. ${a.numero_articulo} (${(a.similitud || 0).toFixed(2)}): ${texto}...\n`;
     }
     
     const systemPrompt = `
-Eres "LexnaVe", un asistente jurídico especializado en leyes venezolanas.
+Eres "LexnaVe", asistente jurídico experto en leyes venezolanas.
 
-⚠️ INSTRUCCIONES ESTRICTAS:
-1. Lee la PREGUNTA del usuario y extrae las PALABRAS CLAVE (ej: "divorcio", "mutuo acuerdo", "separación").
-2. Lee TODOS los artículos del contexto legal proporcionado.
-3. Para CADA artículo, cuenta cuántas de esas PALABRAS CLAVE aparecen en su contenido.
-4. Selecciona el artículo que CONTENGA MÁS coincidencias con las palabras clave de la pregunta.
-5. Si varios artículos tienen coincidencias, elige el que mejor responda la pregunta.
-6. Cita el artículo TEXTUALMENTE entre comillas.
-7. NO inventes artículos que no estén en el contexto.
-8. Si no encuentras un artículo que responda, di: "No tengo información suficiente."
+⚠️ INSTRUCCIONES:
+1. Extrae palabras clave de la pregunta.
+2. Lee todos los artículos del contexto.
+3. Selecciona el artículo con MÁS coincidencias con las palabras clave.
+4. Cita el artículo TEXTUALMENTE.
+5. NO inventes artículos.
 
 ESTRUCTURA DE RESPUESTA:
-1. INTRODUCCIÓN (2-3 líneas que respondan directamente a la pregunta)
-2. "Según el Artículo X de la Ley Y: [texto literal entre comillas]"
-3. Explicación breve de cómo aplica al caso
-4. ACCIONES RECOMENDADAS (pasos prácticos basados en la ley)
-5. ADVERTENCIA: "⚖️ Esto es orientación general. Consulta con un abogado."
+1. INTRODUCCIÓN (2 líneas)
+2. "Según el Artículo X de la Ley Y: [texto literal]"
+3. Explicación breve
+4. ACCIONES RECOMENDADAS (3 pasos)
+5. ⚖️ Esto es orientación general. Consulta con un abogado.
 `;
 
     const promptFinal = `
-CONTEXTO LEGAL (${leyNombre}):
+CONTEXTO (${leyNombre}):
 ${contextoLegal}
 
-CONSULTA DEL USUARIO:
-"${pregunta}"
+PREGUNTA: "${pregunta}"
 
-INSTRUCCIÓN: Genera una respuesta siguiendo ESTRICTAMENTE la estructura y reglas indicadas.
+INSTRUCCIÓN: Responde con la estructura indicada.
 `;
 
     try {
@@ -253,13 +250,13 @@ INSTRUCCIÓN: Genera una respuesta siguiendo ESTRICTAMENTE la estructura y regla
             ],
             model: 'llama-3.3-70b-versatile',
             temperature: 0.2,
-            max_tokens: 3000
+            max_tokens: 1500
         });
 
         return response.choices[0].message.content;
     } catch (error) {
         console.error("Error generando respuesta:", error);
-        return "⚠️ Se produjo un error al generar la respuesta. Por favor, intenta de nuevo.";
+        return "⚠️ Error al generar la respuesta. Intenta de nuevo.";
     }
 }
 
@@ -276,7 +273,7 @@ async function verificarCitasEnRespuesta(respuesta, candidatos) {
     const articulosMencionados = [...new Set([...matches].map(m => parseInt(m[1])))];
     
     if (articulosMencionados.length === 0) {
-        console.log('⚠️ No se encontraron citas de artículos en la respuesta');
+        console.log('⚠️ No se encontraron citas de artículos');
         return false;
     }
     
@@ -288,11 +285,11 @@ async function verificarCitasEnRespuesta(respuesta, candidatos) {
     
     const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
     if (invalidos.length > 0) {
-        console.log(`⚠️ Artículos alucinados detectados: ${invalidos.join(', ')}`);
+        console.log(`⚠️ Artículos alucinados: ${invalidos.join(', ')}`);
         return false;
     }
     
-    console.log(`✅ Todos los artículos citados existen en el contexto`);
+    console.log(`✅ Artículos citados existen en el contexto`);
     return true;
 }
 
@@ -303,17 +300,15 @@ app.post('/api/consultar', async (req, res) => {
     console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
 
     try {
-        // 1. CLASIFICAR CONSULTA
+        // 1. CLASIFICAR
         const clasificacion = await clasificarConsulta(pregunta);
         let leyId = clasificacion.ley_id;
 
-        // Si no se detectó ley, buscar en todas
         if (!leyId) {
-            console.log('⚠️ No se detectó ley. Buscando en todas las leyes...');
-            const candidatosGlobales = await buscarPorSimilitud(pregunta, null, 50);
+            console.log('⚠️ No se detectó ley. Buscando en todas...');
+            const candidatosGlobales = await buscarPorSimilitud(pregunta, null, 30);
             if (candidatosGlobales.length > 0) {
                 leyId = candidatosGlobales[0].ley_id;
-                console.log(`✅ Ley encontrada: ${LEY_MAP[leyId]}`);
                 const respuesta = await generarRespuestaDirecta(pregunta, candidatosGlobales, leyId);
                 const citasValidas = await verificarCitasEnRespuesta(respuesta, candidatosGlobales);
                 if (citasValidas) {
@@ -321,54 +316,52 @@ app.post('/api/consultar', async (req, res) => {
                 }
             }
             return res.json({
-                respuesta: "⚠️ No pude identificar la ley aplicable. Reformula tu pregunta o consulta con un abogado."
+                respuesta: "⚠️ No pude identificar la ley aplicable. Consulta con un abogado."
             });
         }
 
-        console.log(`🔍 Buscando en ley ${leyId} (${LEY_MAP[leyId]})`);
+        console.log(`🔍 Buscando en ${LEY_MAP[leyId]}`);
         
-        // 2. BÚSQUEDA VECTORIAL
-        let articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 50);
+        // 2. BÚSQUEDA VECTORIAL (30 artículos)
+        let articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 30);
 
-        // 3. SI NO ENCUENTRA RESULTADOS, BUSCAR EN TODAS LAS LEYES
+        // 3. SI NO HAY, BUSCAR EN TODAS
         if (articulosEncontrados.length === 0) {
-            console.log('🔄 No se encontraron resultados en la ley detectada. Buscando en todas las leyes...');
-            articulosEncontrados = await buscarPorSimilitud(pregunta, null, 50);
-            
+            console.log('🔄 Buscando en todas las leyes...');
+            articulosEncontrados = await buscarPorSimilitud(pregunta, null, 30);
             if (articulosEncontrados.length > 0) {
                 leyId = articulosEncontrados[0].ley_id;
-                console.log(`✅ Artículos encontrados en ${LEY_MAP[leyId]}`);
             }
         }
 
         if (articulosEncontrados.length === 0) {
             return res.json({
-                respuesta: "⚠️ No encontré artículos relevantes en mi base de datos. Reformula tu pregunta o consulta con un abogado."
+                respuesta: "⚠️ No encontré artículos relevantes. Consulta con un abogado."
             });
         }
 
-        console.log(`📚 Total artículos encontrados: ${articulosEncontrados.length}`);
+        console.log(`📚 ${articulosEncontrados.length} artículos encontrados`);
 
-        // 4. GENERAR RESPUESTA CON GROQ (con prompt mejorado)
+        // 4. GENERAR RESPUESTA
         let respuesta = await generarRespuestaDirecta(pregunta, articulosEncontrados, leyId);
 
         // 5. VALIDAR CITAS
         const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosEncontrados);
 
         if (!citasValidas) {
-            console.log('⚠️ Se detectaron artículos alucinados. Regenerando con más contexto...');
-            const masCandidatos = await buscarPorSimilitud(pregunta, leyId, 80);
+            console.log('⚠️ Regenerando...');
+            const masCandidatos = await buscarPorSimilitud(pregunta, leyId, 50);
             if (masCandidatos.length > articulosEncontrados.length) {
                 respuesta = await generarRespuestaDirecta(pregunta, masCandidatos, leyId);
                 const citasValidas2 = await verificarCitasEnRespuesta(respuesta, masCandidatos);
                 if (!citasValidas2) {
                     return res.json({
-                        respuesta: "⚠️ No tengo información suficiente. Te recomiendo consultar con un abogado."
+                        respuesta: "⚠️ No tengo información suficiente. Consulta con un abogado."
                     });
                 }
             } else {
                 return res.json({
-                    respuesta: "⚠️ No tengo información suficiente. Te recomiendo consultar con un abogado."
+                    respuesta: "⚠️ No tengo información suficiente. Consulta con un abogado."
                 });
             }
         }
@@ -376,9 +369,9 @@ app.post('/api/consultar', async (req, res) => {
         res.json({ respuesta });
 
     } catch (error) {
-        console.error(`❌ Error crítico:`, error);
+        console.error(`❌ Error:`, error);
         res.status(500).json({
-            respuesta: "⚠️ Se produjo un error en el servidor. Por favor, reintente su consulta."
+            respuesta: "⚠️ Error en el servidor. Intenta de nuevo."
         });
     }
 });
