@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
 import { WebSocket } from 'ws';
 import { pipeline } from '@xenova/transformers';
@@ -17,10 +16,7 @@ const supabase = createClient(
     { realtime: { transport: WebSocket } }
 );
 
-// ========== GROQ (RESPUESTAS FINALES) ==========
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
-// ========== OPENROUTER (CLASIFICACIÓN) ==========
+// ========== OPENROUTER CONFIGURACIÓN ==========
 const openrouter = new OpenAI({
     baseURL: 'https://openrouter.ai/api/v1',
     apiKey: process.env.OPENROUTER_API_KEY,
@@ -89,8 +85,8 @@ async function generarEmbedding(texto) {
     }
 }
 
-// ========== BÚSQUEDA POR SIMILITUD (OPTIMIZADA) ==========
-async function buscarPorSimilitud(pregunta, leyId = null, limite = 20) {
+// ========== BÚSQUEDA POR SIMILITUD ==========
+async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
     try {
         const embedding = await generarEmbedding(pregunta);
         
@@ -129,7 +125,7 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 20) {
 }
 
 // ========== BÚSQUEDA POR TEXTO (FALLBACK) ==========
-async function buscarPorTexto(pregunta, leyId = null, limite = 20) {
+async function buscarPorTexto(pregunta, leyId = null, limite = 30) {
     try {
         const query = supabase
             .from('articulos')
@@ -165,76 +161,83 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 20) {
     }
 }
 
-// ========== OPENROUTER: CLASIFICAR CONSULTA (con fallback) ==========
+// ========== OPENROUTER: CLASIFICAR CONSULTA ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
-    Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
+    Eres un experto en derecho venezolano. Clasifica la siguiente consulta legal.
     
-    CRITERIOS:
-    - prescripción, daños, perjuicios, accidente → 3
-    - divorcio, matrimonio, alimentos → 3
-    - servidumbre, luz natural, muro → 3
-    - hurto, robo, penal → 6
-    - detención, flagrancia → 5
-    - letra de cambio, comercio → 4
-    - propiedad horizontal, condominio, vecino → 2
-    - constitución, amparo → 1
-    - procedimiento, juicio, demanda → 7
+    CRITERIOS DE CLASIFICACIÓN:
+    - "Prescripción", "plazo", "daños", "perjuicios", "responsabilidad civil", "accidente" → Código Civil (Ley 3)
+    - "Servidumbre", "luz natural", "muro", "pared medianera" → Código Civil (Ley 3)
+    - "Matrimonio", "divorcio", "separacion", "alimentos" → Código Civil (Ley 3)
+    - "Herencia", "testamento", "sucesion" → Código Civil (Ley 3)
+    - "Contrato", "obligaciones" → Código Civil (Ley 3)
+    - "Hurto", "robo", "pena", "prisión", "delito" → Código Penal (Ley 6)
+    - "Detención", "flagrancia", "fiscal", "juez" → COPP (Ley 5)
+    - "Letra de cambio", "comercio", "sociedad", "empresa" → Código de Comercio (Ley 4)
+    - "Propiedad horizontal", "condominio", "vecino", "cuotas" → LPH (Ley 2)
+    - "Constitución", "amparo", "derechos humanos" → CRBV (Ley 1)
+    - "Procedimiento", "juicio", "demanda", "intimación" → CPC (Ley 7)
+    - "Arrendamiento vivienda" → Ley 8
+    - "Violencia mujer" → Ley 9
+
+    Leyes disponibles:
+    1: CRBV, 2: LPH, 3: Código Civil, 4: Código de Comercio, 5: COPP, 6: Código Penal, 7: CPC, 8: Arrendamiento Vivienda, 9: Violencia Mujer, 10: Arrendamiento Comercial, 11: Registros
 
     Consulta: "${pregunta}"
+
+    Responde SOLO con JSON:
+    {"ley_id": número, "tema": "descripción breve", "confianza": "alta/media/baja"}
     `;
 
     try {
         const response = await openrouter.chat.completions.create({
-            model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
+            model: 'meta-llama/llama-3.3-70b-instruct:free',
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.1,
-            max_tokens: 50
+            max_tokens: 150
         });
+
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación: Ley ${result.ley_id}`);
+        console.log(`📋 Clasificación: Ley ${result.ley_id} (${LEY_MAP[result.ley_id] || 'Desconocida'}), Confianza: ${result.confianza}`);
         return result;
     } catch (error) {
-        console.warn("⚠️ OpenRouter falló, usando fallback...");
-        // Fallback: clasificación por palabras clave
-        const lower = pregunta.toLowerCase();
-        if (lower.includes('prescripcion') || lower.includes('daños') || lower.includes('accidente')) return { ley_id: 3 };
-        if (lower.includes('divorcio') || lower.includes('matrimonio')) return { ley_id: 3 };
-        if (lower.includes('servidumbre') || lower.includes('luz natural')) return { ley_id: 3 };
-        if (lower.includes('hurto') || lower.includes('robo')) return { ley_id: 6 };
-        if (lower.includes('detención') || lower.includes('flagrancia')) return { ley_id: 5 };
-        if (lower.includes('letra') || lower.includes('comercio')) return { ley_id: 4 };
-        if (lower.includes('propiedad horizontal') || lower.includes('condominio')) return { ley_id: 2 };
-        if (lower.includes('constitución') || lower.includes('amparo')) return { ley_id: 1 };
-        if (lower.includes('procedimiento') || lower.includes('juicio') || lower.includes('demanda')) return { ley_id: 7 };
-        return { ley_id: 3 };
+        console.error("Error en clasificación:", error);
+        return { ley_id: null, tema: null, confianza: 'baja' };
     }
 }
 
-// ========== GROQ: GENERAR RESPUESTA (OPTIMIZADA) ==========
+// ========== OPENROUTER: GENERAR RESPUESTA ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    // Tomar los 8 mejores candidatos (reducido)
-    const mejores = candidatos.slice(0, 8);
+    // Tomar los 12 mejores candidatos
+    const mejores = candidatos.slice(0, 12);
     
-    // Construir contexto con 250 caracteres (reducido)
+    // Construir contexto
     let contextoLegal = "";
     for (let i = 0; i < mejores.length; i++) {
         const a = mejores[i];
-        const texto = a.contenido.substring(0, 250);
-        contextoLegal += `\nArt. ${a.numero_articulo}: ${texto}...\n`;
+        const texto = a.contenido.substring(0, 350);
+        contextoLegal += `\nArt. ${a.numero_articulo} (${(a.similitud || 0).toFixed(2)}): ${texto}...\n`;
     }
     
     const systemPrompt = `
-Eres LexnaVe, asistente legal venezolano. Usa SOLO los artículos del contexto.
-Cita el artículo exacto con texto literal.
+Eres "LexnaVe", asistente jurídico experto en leyes venezolanas.
 
-ESTRUCTURA:
+⚠️ INSTRUCCIONES:
+1. Extrae palabras clave de la pregunta.
+2. Lee todos los artículos del contexto.
+3. Selecciona el artículo con MÁS coincidencias con las palabras clave.
+4. Cita el artículo TEXTUALMENTE.
+5. NO inventes artículos.
+
+ESTRUCTURA DE RESPUESTA:
 1. INTRODUCCIÓN (2 líneas)
-2. "Según el Artículo X: [texto literal]"
-3. ACCIONES RECOMENDADAS (3 pasos)
-4. ⚖️ Consulta con un abogado.
+2. "Según el Artículo X de la Ley Y: [texto literal]"
+3. Explicación breve
+4. ACCIONES RECOMENDADAS (3 pasos)
+5. ⚖️ Esto es orientación general. Consulta con un abogado.
 `;
 
     const promptFinal = `
@@ -243,19 +246,20 @@ ${contextoLegal}
 
 PREGUNTA: "${pregunta}"
 
-Responde con la estructura indicada.
+INSTRUCCIÓN: Responde con la estructura indicada.
 `;
 
     try {
-        const response = await groq.chat.completions.create({
+        const response = await openrouter.chat.completions.create({
+            model: 'meta-llama/llama-3.3-70b-instruct:free',
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: promptFinal }
             ],
-            model: 'llama-3.1-8b-instant',
             temperature: 0.2,
-            max_tokens: 800
+            max_tokens: 1500
         });
+
         return response.choices[0].message.content;
     } catch (error) {
         console.error("Error generando respuesta:", error);
@@ -264,13 +268,19 @@ Responde con la estructura indicada.
 }
 
 // ========== VALIDAR CITAS ==========
+function extraerArticulosCitados(respuesta) {
+    const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
+    const matches = respuesta.matchAll(regex);
+    return [...new Set([...matches].map(m => m[1]))];
+}
+
 async function verificarCitasEnRespuesta(respuesta, candidatos) {
     const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
     const matches = respuesta.matchAll(regex);
     const articulosMencionados = [...new Set([...matches].map(m => parseInt(m[1])))];
     
     if (articulosMencionados.length === 0) {
-        console.log('⚠️ No se encontraron citas');
+        console.log('⚠️ No se encontraron citas de artículos');
         return false;
     }
     
@@ -297,19 +307,35 @@ app.post('/api/consultar', async (req, res) => {
     console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
 
     try {
-        // 1. CLASIFICAR (OpenRouter + fallback)
+        // 1. CLASIFICAR
         const clasificacion = await clasificarConsulta(pregunta);
-        let leyId = clasificacion.ley_id || 3;
+        let leyId = clasificacion.ley_id;
+
+        if (!leyId) {
+            console.log('⚠️ No se detectó ley. Buscando en todas...');
+            const candidatosGlobales = await buscarPorSimilitud(pregunta, null, 30);
+            if (candidatosGlobales.length > 0) {
+                leyId = candidatosGlobales[0].ley_id;
+                const respuesta = await generarRespuestaDirecta(pregunta, candidatosGlobales, leyId);
+                const citasValidas = await verificarCitasEnRespuesta(respuesta, candidatosGlobales);
+                if (citasValidas) {
+                    return res.json({ respuesta });
+                }
+            }
+            return res.json({
+                respuesta: "⚠️ No pude identificar la ley aplicable. Consulta con un abogado."
+            });
+        }
 
         console.log(`🔍 Buscando en ${LEY_MAP[leyId]}`);
         
         // 2. BÚSQUEDA VECTORIAL
-        let articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 20);
+        let articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 30);
 
         // 3. SI NO HAY, BUSCAR EN TODAS
         if (articulosEncontrados.length === 0) {
             console.log('🔄 Buscando en todas las leyes...');
-            articulosEncontrados = await buscarPorSimilitud(pregunta, null, 20);
+            articulosEncontrados = await buscarPorSimilitud(pregunta, null, 30);
             if (articulosEncontrados.length > 0) {
                 leyId = articulosEncontrados[0].ley_id;
             }
@@ -323,7 +349,7 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📚 ${articulosEncontrados.length} artículos encontrados`);
 
-        // 4. GENERAR RESPUESTA (Groq optimizado)
+        // 4. GENERAR RESPUESTA
         let respuesta = await generarRespuestaDirecta(pregunta, articulosEncontrados, leyId);
 
         // 5. VALIDAR CITAS
@@ -331,7 +357,7 @@ app.post('/api/consultar', async (req, res) => {
 
         if (!citasValidas) {
             console.log('⚠️ Regenerando...');
-            const masCandidatos = await buscarPorSimilitud(pregunta, leyId, 30);
+            const masCandidatos = await buscarPorSimilitud(pregunta, leyId, 50);
             if (masCandidatos.length > articulosEncontrados.length) {
                 respuesta = await generarRespuestaDirecta(pregunta, masCandidatos, leyId);
                 const citasValidas2 = await verificarCitasEnRespuesta(respuesta, masCandidatos);
