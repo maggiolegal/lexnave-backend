@@ -37,6 +37,7 @@ const LEY_MAP = {
 const ARTICULOS_CLAVE = {
     // ===== LEY 1: CRBV =====
     1: {
+        // Derechos Fundamentales
         'amparo': ['26', '27', '49'],
         'derecho propiedad': ['115'],
         'estado excepcion': ['337', '338', '339'],
@@ -47,7 +48,20 @@ const ARTICULOS_CLAVE = {
         'derecho trabajo': ['87', '88', '89'],
         'derecho salud': ['83', '84'],
         'derecho educacion': ['102', '103'],
-        'derecho vivienda': ['82']
+        'derecho vivienda': ['82'],
+        'derecho alimentacion': ['84'],
+        'derecho agua': ['84'],
+        'derecho ambiente': ['127'],
+        'derecho cultura': ['98', '99'],
+        'derecho deporte': ['111'],
+        'derecho seguridad social': ['86'],
+        'derecho familia': ['75', '76', '77'],
+        'derecho niños': ['78', '79'],
+        'derecho adultos mayores': ['80'],
+        'derecho discapacidad': ['81'],
+        'derecho pueblos indígenas': ['119', '120', '121'],
+        'derecho mujer': ['88', '89'],
+        'derecho trabajo': ['87', '88', '89']
     },
     
     // ===== LEY 2: LPH =====
@@ -57,36 +71,93 @@ const ARTICULOS_CLAVE = {
         'cuotas mantenimiento': ['14', '7', '5'],
         'administrador': ['18', '19', '20', '21'],
         'junta condominio': ['18', '19'],
-        'asamblea copropietarios': ['18', '19', '22', '23', '24']
+        'asamblea copropietarios': ['18', '19', '22', '23', '24'],
+        'cosas comunes': ['5', '8', '11'],
+        'gastos comunes': ['11', '12', '13', '14'],
+        'documento condominio': ['26', '27', '28', '29'],
+        'reparaciones': ['22', '23', '24'],
+        'sanciones': ['39', '40', '41', '42', '43', '44', '45', '46', '47']
     },
     
     // ===== LEY 3: CÓDIGO CIVIL =====
     3: {
+        // Prescripción
         'prescripcion': ['1969', '1950', '1951', '1952'],
         'plazo prescripcion': ['1969'],
+        'interrupcion prescripcion': ['1969'],
+        
+        // Responsabilidad Civil
         'daños y perjuicios': ['1185', '1190', '1810', '1969'],
         'accidente transito': ['1185', '1810', '1969'],
         'responsabilidad civil': ['1185', '1190'],
+        
+        // Servidumbres
         'servidumbre': ['571', '572', '573', '574', '575', '576', '577'],
+        'servidumbre luces': ['571', '572', '573', '574'],
+        'servidumbre vistas': ['571', '572', '573', '574'],
+        'luz natural': ['571', '572', '573', '574'],
+        'muro': ['571', '572', '573'],
+        'pared medianera': ['571', '572'],
+        'distancia construccion': ['571', '572', '573'],
+        
+        // Vías de hecho
         'vias de hecho': ['548'],
+        
+        // Contratos
         'contrato': ['1137', '1140', '1145'],
         'arrendamiento': ['1576', '1577', '1578'],
+        
+        // Familia
         'matrimonio': ['82', '83', '84', '85', '86', '87', '88'],
         'divorcio': ['185', '186', '187'],
+        'separacion': ['185', '186', '187'],
+        'filiacion': ['210', '211', '212'],
+        'patria potestad': ['262', '263', '264'],
+        'alimentos': ['282', '283', '284'],
+        
+        // Sucesiones
         'herencia': ['991', '992', '993', '994'],
         'testamento': ['991', '992', '993', '994'],
-        'usucapion': ['1977', '1978']
+        'sucesion': ['991', '992', '993', '994'],
+        'albacea': ['971', '972', '973'],
+        'legitima': ['994', '995', '996'],
+        
+        // Propiedad
+        'usucapion': ['1977', '1978'],
+        'propiedad': ['545', '546', '547'],
+        'posesion': ['771', '772', '773'],
+        'accesion': ['571', '572', '573'],
+        
+        // Obligaciones
+        'obligaciones': ['1137', '1138', '1139'],
+        'pago': ['1300', '1301', '1302'],
+        'incumplimiento': ['1137', '1138', '1139']
     },
     
     // ===== LEY 4: CÓDIGO DE COMERCIO =====
     4: {
+        // Títulos Valores
         'letra cambio': ['410'],
         'requisitos letra': ['410'],
-        'comercio': ['2', '5', '10'],
         'pagare': ['410'],
         'cheque': ['410'],
+        'endoso': ['410', '411', '412'],
+        'aval': ['410', '411', '412'],
+        'protesto': ['413', '414'],
+        'vencimiento': ['413', '414'],
+        'aceptacion': ['411', '412'],
+        
+        // Sociedades
         'sociedad mercantil': ['200', '201', '202'],
-        'empresa': ['2', '5', '10']
+        'sociedad anonima': ['200', '201', '202'],
+        'empresa': ['2', '5', '10'],
+        'comerciante': ['2', '5', '10'],
+        'acto comercio': ['2', '5', '10'],
+        
+        // Contratos Mercantiles
+        'compraventa mercantil': ['2', '5', '10'],
+        'seguro': ['2', '5', '10'],
+        'cuenta corriente': ['2', '5', '10']
     },
     
     // ===== LEY 5: COPP (COMPLETO) =====
@@ -104,6 +175,8 @@ const ARTICULOS_CLAVE = {
         'libertad provisional': ['242', '243', '244'],
         'fianza': ['244', '245'],
         'caución': ['244', '245'],
+        'arresto domiciliario': ['236', '237', '238'],
+        'presentacion periodica': ['242', '243', '244'],
         
         // Procedimiento
         'procedimiento abreviado': ['372', '373'],
@@ -130,10 +203,12 @@ const ARTICULOS_CLAVE = {
         'derecho defensa': ['8', '9', '10'],
         'presuncion inocencia': ['8'],
         'debido proceso penal': ['8', '9'],
+        'derecho silencio': ['8', '9', '10'],
         
         // Recursos
         'apelacion': ['438', '439'],
-        'recurso': ['438', '439']
+        'recurso': ['438', '439'],
+        'casacion': ['438', '439']
     },
     
     // ===== LEY 6: CÓDIGO PENAL (COMPLETO) =====
@@ -146,6 +221,7 @@ const ARTICULOS_CLAVE = {
         'estafa': ['461', '462'],
         'fraude': ['461', '462'],
         'apropiacion indebida': ['465', '466'],
+        'daño a propiedad': ['451', '452', '453'],
         
         // Delitos Contra las Personas
         'homicidio': ['405', '406'],
@@ -156,12 +232,15 @@ const ARTICULOS_CLAVE = {
         'lesiones culposas': ['415'],
         'violacion': ['374', '375'],
         'abuso sexual': ['375', '376'],
+        'acoso sexual': ['375', '376'],
+        'violencia': ['413', '414'],
         
         // Delitos Contra la Libertad
         'secuestro': ['460'],
         'extorsion': ['460'],
         'coaccion': ['460'],
         'amenaza': ['460'],
+        'privacion libertad': ['460'],
         
         // Delitos Contra la Administración
         'corrupcion': ['60', '61', '62'],
@@ -170,48 +249,97 @@ const ARTICULOS_CLAVE = {
         'concusion': ['65', '66'],
         'cohecho': ['67', '68'],
         'prevaricacion': ['70', '71'],
+        'narcotrafico': ['460'],
         
         // Delitos Contra la Fe Pública
         'falsificacion': ['450'],
         'falsedad': ['450'],
         'perjurio': ['450'],
+        'falso testimonio': ['450'],
         
         // Delitos Económicos
         'contrabando': ['460'],
         'tráfico drogas': ['460'],
         'legitimacion capitales': ['460'],
+        'lavado dinero': ['460'],
         
         // Penas
         'pena': ['451', '455', '405', '406'],
         'prision': ['451', '455', '405', '406'],
         'presidio': ['451', '455', '405', '406'],
+        'arresto': ['451', '455', '405', '406'],
+        'multa': ['451', '455', '405', '406'],
         
         // Circunstancias
         'reincidencia': ['26'],
         'atenuantes': ['27', '28', '29'],
-        'agravantes': ['30', '31']
+        'agravantes': ['30', '31'],
+        'eximentes': ['27', '28', '29']
     },
     
     // ===== LEY 7: CPC =====
     7: {
+        // Procedimientos Especiales
         'intimacion': ['640', '641', '642'],
+        'procedimiento breve': ['881', '882', '883'],
+        'ejecucion': ['650', '651', '652'],
+        
+        // Procedimiento Ordinario
         'procedimiento civil': ['340', '341', '342'],
         'demanda': ['340'],
         'juicio': ['340', '341'],
-        'apelacion': ['340', '341']
+        'apelacion': ['340', '341'],
+        'recurso': ['340', '341'],
+        
+        // Medidas
+        'medidas preventivas': ['585', '586', '587'],
+        'embargo': ['585', '586', '587'],
+        'secuestro': ['585', '586', '587'],
+        
+        // Pruebas
+        'pruebas': ['395', '396', '397'],
+        'testigos': ['395', '396', '397'],
+        'documentos': ['395', '396', '397'],
+        'confesion': ['395', '396', '397'],
+        
+        // Notificaciones
+        'citacion': ['174', '175', '176'],
+        'notificacion': ['174', '175', '176'],
+        'emplazamiento': ['174', '175', '176']
     },
     
     // ===== LEY 8: ARRENDAMIENTO VIVIENDA =====
     8: {
         'arrendamiento vivienda': ['1', '2', '3', '4', '5'],
         'canon': ['1', '2', '3'],
-        'desalojo': ['20', '21', '22']
+        'desalojo': ['20', '21', '22'],
+        'contrato arrendamiento': ['1', '2', '3'],
+        'derechos arrendatario': ['1', '2', '3'],
+        'obligaciones arrendador': ['1', '2', '3']
     },
     
     // ===== LEY 9: VIOLENCIA MUJER =====
     9: {
         'violencia mujer': ['1', '2', '3'],
-        'violencia genero': ['1', '2', '3']
+        'violencia genero': ['1', '2', '3'],
+        'violencia domestica': ['1', '2', '3'],
+        'violencia intrafamiliar': ['1', '2', '3'],
+        'medidas proteccion': ['1', '2', '3']
+    },
+    
+    // ===== LEY 10: ARRENDAMIENTO COMERCIAL =====
+    10: {
+        'arrendamiento comercial': ['1', '2', '3'],
+        'local comercial': ['1', '2', '3'],
+        'canon comercial': ['1', '2', '3']
+    },
+    
+    // ===== LEY 11: REGISTROS Y NOTARÍAS =====
+    11: {
+        'registro': ['1', '2', '3'],
+        'notaría': ['1', '2', '3'],
+        'registro publico': ['1', '2', '3'],
+        'protocolizacion': ['1', '2', '3']
     }
 };
 
@@ -423,6 +551,7 @@ async function clasificarConsulta(pregunta) {
     
     CRITERIOS DE CLASIFICACIÓN:
     - "Prescripción", "plazo", "daños", "perjuicios", "responsabilidad civil" → Código Civil (Ley 3)
+    - "Servidumbre", "luz natural", "muro", "pared medianera" → Código Civil (Ley 3)
     - "Hurto", "robo", "pena", "prisión", "delito" → Código Penal (Ley 6)
     - "Detención", "flagrancia", "fiscal", "juez" → COPP (Ley 5)
     - "Letra de cambio", "comercio", "sociedad", "empresa" → Código de Comercio (Ley 4)
