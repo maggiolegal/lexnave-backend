@@ -199,12 +199,12 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== GROQ: GENERAR RESPUESTA DIRECTA CON LOS CANDIDATOS ==========
+// ========== GROQ: GENERAR RESPUESTA DIRECTA CON PROMPT MEJORADO ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
-    // Tomar los mejores 15 candidatos
-    const mejores = candidatos.slice(0, 15);
+    // Tomar los mejores 20 candidatos
+    const mejores = candidatos.slice(0, 20);
     
     // Construir contexto con los artículos completos
     let contextoLegal = "";
@@ -218,18 +218,20 @@ async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
 Eres "LexnaVe", un asistente jurídico especializado en leyes venezolanas.
 
 ⚠️ INSTRUCCIONES ESTRICTAS:
-1. Lee la PREGUNTA del usuario y extrae las PALABRAS CLAVE.
+1. Lee la PREGUNTA del usuario y extrae las PALABRAS CLAVE (ej: "divorcio", "mutuo acuerdo", "separación").
 2. Lee TODOS los artículos del contexto legal proporcionado.
-3. Analiza cada artículo y selecciona el que mejor responda la pregunta.
-4. Cita el artículo TEXTUALMENTE entre comillas.
-5. NO inventes artículos que no estén en el contexto.
-6. Si no encuentras un artículo que responda, di: "No tengo información suficiente."
+3. Para CADA artículo, cuenta cuántas de esas PALABRAS CLAVE aparecen en su contenido.
+4. Selecciona el artículo que CONTENGA MÁS coincidencias con las palabras clave de la pregunta.
+5. Si varios artículos tienen coincidencias, elige el que mejor responda la pregunta.
+6. Cita el artículo TEXTUALMENTE entre comillas.
+7. NO inventes artículos que no estén en el contexto.
+8. Si no encuentras un artículo que responda, di: "No tengo información suficiente."
 
 ESTRUCTURA DE RESPUESTA:
-1. INTRODUCCIÓN (2-3 líneas)
+1. INTRODUCCIÓN (2-3 líneas que respondan directamente a la pregunta)
 2. "Según el Artículo X de la Ley Y: [texto literal entre comillas]"
 3. Explicación breve de cómo aplica al caso
-4. ACCIONES RECOMENDADAS (pasos prácticos)
+4. ACCIONES RECOMENDADAS (pasos prácticos basados en la ley)
 5. ADVERTENCIA: "⚖️ Esto es orientación general. Consulta con un abogado."
 `;
 
@@ -240,7 +242,7 @@ ${contextoLegal}
 CONSULTA DEL USUARIO:
 "${pregunta}"
 
-INSTRUCCIÓN: Genera una respuesta siguiendo la estructura y reglas indicadas.
+INSTRUCCIÓN: Genera una respuesta siguiendo ESTRICTAMENTE la estructura y reglas indicadas.
 `;
 
     try {
@@ -261,12 +263,11 @@ INSTRUCCIÓN: Genera una respuesta siguiendo la estructura y reglas indicadas.
     }
 }
 
-// ========== VALIDAR CITAS ==========
+// ========== EXTRAER Y VALIDAR CITAS ==========
 function extraerArticulosCitados(respuesta) {
     const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
     const matches = respuesta.matchAll(regex);
-    const articulos = [...new Set([...matches].map(m => m[1]))];
-    return articulos;
+    return [...new Set([...matches].map(m => m[1]))];
 }
 
 async function verificarCitasEnRespuesta(respuesta, candidatos) {
@@ -348,7 +349,7 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📚 Total artículos encontrados: ${articulosEncontrados.length}`);
 
-        // 4. GENERAR RESPUESTA CON GROQ (sin filtro de keywords)
+        // 4. GENERAR RESPUESTA CON GROQ (con prompt mejorado)
         let respuesta = await generarRespuestaDirecta(pregunta, articulosEncontrados, leyId);
 
         // 5. VALIDAR CITAS
