@@ -33,6 +33,67 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
+// ========== FORZAR ARTÍCULOS POR TEMA ==========
+const FORZAR_ARTICULOS = {
+    // Código Penal (Ley 6)
+    'hurto': ['451', '452', '453'],
+    'robo': ['455', '456', '457'],
+    'homicidio': ['405', '406', '409'],
+    'lesiones': ['413', '414', '415'],
+    'estafa': ['461', '462'],
+    'corrupción': ['60', '61', '62'],
+    'peculado': ['63', '64'],
+    'cohecho': ['67', '68'],
+    'secuestro': ['460'],
+    'extorsion': ['460'],
+    
+    // Código Civil (Ley 3)
+    'prescripcion': ['1969', '1950', '1951', '1952'],
+    'divorcio': ['185', '186', '187'],
+    'matrimonio': ['82', '83', '84', '85', '86', '87', '88'],
+    'paternidad': ['210', '211', '212', '215'],
+    'filiacion': ['210', '211', '212'],
+    'alimentos': ['282', '283', '284'],
+    'herencia': ['991', '992', '993', '994'],
+    'testamento': ['991', '992', '993', '994'],
+    'servidumbre': ['571', '572', '573', '574', '575', '576', '577'],
+    'contrato': ['1137', '1140', '1145'],
+    'arrendamiento': ['1576', '1577', '1578'],
+    
+    // COPP (Ley 5)
+    'flagrancia': ['373'],
+    'detencion': ['373', '374', '375'],
+    'fianza': ['244', '245'],
+    'medidas cautelares': ['236', '237', '238'],
+    'acto conclusivo': ['295'],
+    'apelacion': ['438', '439'],
+    
+    // CPC (Ley 7)
+    'intimacion': ['640', '641', '642'],
+    'interdicto': ['782', '783', '784', '785'],
+    'embargo': ['585', '586', '587'],
+    'demanda': ['340'],
+    'apelacion': ['340', '341'],
+    
+    // Ley Violencia Mujer (Ley 9)
+    'violencia mujer': ['1', '2', '3', '4', '5'],
+    'medidas proteccion': ['1', '2', '3'],
+    
+    // LPH (Ley 2)
+    'propiedad horizontal': ['5', '7', '8', '9', '14'],
+    'cuotas mantenimiento': ['14', '7', '5'],
+    
+    // Código de Comercio (Ley 4)
+    'letra cambio': ['410'],
+    'pagare': ['410'],
+    'cheque': ['410'],
+    
+    // CRBV (Ley 1)
+    'amparo': ['26', '27', '49'],
+    'estado excepcion': ['337', '338', '339'],
+    'derecho propiedad': ['115']
+};
+
 // ========== MODELO DE EMBEDDING LOCAL ==========
 let embedder = null;
 
@@ -77,7 +138,7 @@ async function generarEmbedding(texto) {
     }
 }
 
-// ========== BÚSQUEDA POR SIMILITUD ==========
+// ========== BUSCAR POR SIMILITUD ==========
 async function buscarPorSimilitud(pregunta, leyId = null, limite = 50) {
     try {
         const embedding = await generarEmbedding(pregunta);
@@ -153,57 +214,84 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== CLASIFICACIÓN CON 8B (CRITERIOS COMPLETOS) ==========
+// ========== BUSCAR ARTÍCULO POR NÚMERO ==========
+async function buscarArticuloPorNumero(leyId, numeroArticulo) {
+    try {
+        const { data, error } = await supabase
+            .from('articulos')
+            .select('id, numero_articulo, contenido, ley_id')
+            .eq('ley_id', parseInt(leyId))
+            .eq('numero_articulo', numeroArticulo)
+            .maybeSingle();
+        
+        if (data && !error) {
+            return {
+                id: data.id,
+                numero_articulo: data.numero_articulo,
+                contenido: data.contenido,
+                ley_id: data.ley_id,
+                ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
+                similitud: 0.99
+            };
+        }
+        return null;
+    } catch (e) {
+        console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
+        return null;
+    }
+}
+
+// ========== CLASIFICACIÓN CON 8B (COMPLETA) ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
     Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
     
-    === CRITERIOS DE CLASIFICACIÓN ===
+    === CRITERIOS COMPLETOS ===
     
-    === CÓDIGO DE PROCEDIMIENTO CIVIL (Ley 7) ===
-    PROCEDIMIENTO ORDINARIO: demanda, emplazamiento, contestación, cuestiones previas, instrucción, lapso probatorio, pruebas, documentos, testigos, experticias, inspección, informes, sentencia, ejecución, embargo, remate, subasta
+    LEY 1 - CONSTITUCIÓN: constitución, amparo, derechos humanos, estado de excepción, debido proceso, derecho propiedad, libertad expresión, derecho trabajo, derecho salud, derecho educación
     
-    PROCEDIMIENTOS ESPECIALES: procedimiento oral, procedimiento breve, intimación, vía ejecutiva, interdictos, posesión, daño temido, partición, cuentas, jurisdicción voluntaria
+    LEY 2 - LPH: propiedad horizontal, condominio, vecino, cuotas mantenimiento, administrador, asamblea copropietarios, cosas comunes, gastos comunes, documento condominio
     
-    MEDIDAS: medidas preventivas, embargo, secuestro, prohibición enajenar, perención, recusación
+    LEY 3 - CÓDIGO CIVIL:
+    PERSONAS: nacionalidad, domicilio, estado civil, matrimonio, divorcio, separación, filiación, paternidad, maternidad, hijo, adopción, patria potestad, alimentos, tutela, emancipación, interdicción, inhabilitación, ausencia, registro civil
+    BIENES: bienes, muebles, inmuebles, propiedad, posesión, comunidad, copropiedad, accesión, servidumbre, usufructo, uso, habitación
+    OBLIGACIONES: obligaciones, contrato, donación, venta, permuta, arrendamiento, alquiler, comodato, mutuo, depósito, prenda, hipoteca, anticresis, fianza, sociedad, mandato, transacción, seguro
+    SUCESIONES: herencia, testamento, sucesión, albacea, legado, legitimaria, heredero
+    PRESCRIPCIÓN: prescripción, plazo, interrupción, caducidad
     
-    RECURSOS: apelación, casación, recursos
+    LEY 4 - CÓDIGO DE COMERCIO: letra cambio, pagaré, cheque, comercio, sociedad mercantil, empresa, sociedad anónima, acto comercio, comerciante
     
-    === CÓDIGO CIVIL (Ley 3) ===
-    PERSONAS: nacionalidad, domicilio, estado civil, matrimonio, divorcio, filiación, paternidad, hijo, adopción, patria potestad, alimentos, tutela, emancipación, interdicción, ausencia, registro civil
-    
-    BIENES: propiedad, posesión, comunidad, copropiedad, servidumbre, usufructo, uso, habitación
-    
-    OBLIGACIONES: contrato, donación, venta, permuta, arrendamiento, comodato, mutuo, depósito, prenda, hipoteca, anticresis, fianza, sociedad, mandato, transacción, seguro
-    
-    SUCESIONES: herencia, testamento, sucesión, albacea, legado, heredero
-    
-    === CÓDIGO PENAL (Ley 6) ===
-    DELITOS: homicidio, asesinato, lesiones, hurto, robo, estafa, fraude, apropiación, secuestro, extorsión, amenaza, coacción, violación, abuso sexual
-    ADMINISTRACIÓN: corrupción, peculado, malversación, concusión, cohecho, prevaricación
-    PENAS: pena, prisión, presidio, arresto, multa, reincidencia, atenuantes, agravantes, tentativa, frustración, prescripción penal, indulto
-    RESPONSABILIDAD: imputabilidad, dolo, culpa, legítima defensa, estado necesidad
-    
-    === CÓDIGO ORGÁNICO PROCESAL PENAL (Ley 5) ===
+    LEY 5 - COPP:
     DETENCIÓN: detención, flagrancia, arresto, aprehensión, captura, presentación juez, imputado
     PROCESO: juicio oral, audiencia preliminar, fase preparatoria, investigación, fiscalía, acto conclusivo, acusación, sobreseimiento
     GARANTÍAS: presunción inocencia, derecho defensa, debido proceso, libertad
-    MEDIDAS: medidas cautelares, privación libertad, libertad provisional, fianza, caución
+    MEDIDAS: medidas cautelares, privación libertad, libertad provisional, fianza, caución, arresto domiciliario
     RECURSOS: apelación, casación, revisión
     
-    === LEY ORGÁNICA SOBRE EL DERECHO DE LAS MUJERES (Ley 9) ===
-    VIOLENCIA: violencia mujer, violencia género, violencia doméstica, violencia física, violencia psicológica, violencia sexual, violencia patrimonial, violencia obstétrica, violencia institucional
-    PROTECCIÓN: medidas protección, órdenes protección, casa abrigo, refugio, víctima
-    PROCEDIMIENTO: denuncia, ruta de la justicia, tribunales especializados, control, audiencia, medidas
+    LEY 6 - CÓDIGO PENAL:
+    DELITOS PROPIEDAD: hurto, robo, estafa, fraude, apropiación indebida, daño a propiedad
+    DELITOS PERSONAS: homicidio, asesinato, lesiones, violencia, agresión
+    DELITOS LIBERTAD: secuestro, extorsión, coacción, amenaza, privación libertad
+    ADMINISTRACIÓN: corrupción, peculado, malversación, concusión, cohecho, prevaricación
+    PENAS: pena, prisión, presidio, arresto, multa, reincidencia, atenuantes, agravantes, eximentes
+    RESPONSABILIDAD: imputabilidad, dolo, culpa, legítima defensa, estado necesidad, tentativa, frustración, prescripción penal
     
-    === CONSTITUCIÓN (Ley 1) ===
-    constitución, amparo, derechos humanos, estado de excepción, derechos fundamentales
+    LEY 7 - CPC:
+    PROCEDIMIENTO ORDINARIO: demanda, emplazamiento, contestación, cuestiones previas, instrucción, lapso probatorio, pruebas, documentos, testigos, experticias, inspección, informes, sentencia, ejecución, embargo, remate, subasta
+    PROCEDIMIENTOS ESPECIALES: procedimiento oral, procedimiento breve, intimación, vía ejecutiva, interdictos, posesión, daño temido, partición, cuentas, jurisdicción voluntaria
+    MEDIDAS: medidas preventivas, embargo, secuestro, prohibición enajenar, perención, recusación
+    RECURSOS: apelación, casación
     
-    === PROPIEDAD HORIZONTAL (Ley 2) ===
-    propiedad horizontal, condominio, vecino, cuotas mantenimiento, asamblea copropietarios, administrador
+    LEY 8 - ARRENDAMIENTO VIVIENDA: arrendamiento vivienda, canon, desalojo, contrato arrendamiento, derechos arrendatario
     
-    === CÓDIGO DE COMERCIO (Ley 4) ===
-    letra cambio, pagaré, cheque, comercio, sociedad mercantil, empresa, sociedad anónima
+    LEY 9 - VIOLENCIA MUJER:
+    VIOLENCIA: violencia mujer, violencia género, violencia doméstica, violencia física, violencia psicológica, violencia sexual, violencia patrimonial, violencia obstétrica, violencia institucional, violencia laboral, violencia política
+    PROTECCIÓN: medidas protección, órdenes protección, casa abrigo, refugio, víctima, denuncia
+    PROCEDIMIENTO: ruta de la justicia, tribunales especializados, control, audiencia, medidas
+    
+    LEY 10 - ARRENDAMIENTO COMERCIAL: arrendamiento comercial, local comercial, canon comercial
+    
+    LEY 11 - REGISTROS: registro, notaría, registro público, protocolización
 
     Consulta: "${pregunta}"
     `;
@@ -224,31 +312,19 @@ async function clasificarConsulta(pregunta) {
         console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
         const lower = pregunta.toLowerCase();
         
-        // CPC
-        if (lower.includes('demanda') || lower.includes('juicio') || lower.includes('procedimiento') ||
-            lower.includes('pruebas') || lower.includes('testigos') || lower.includes('embargo') ||
-            lower.includes('intimación') || lower.includes('interdicto') || lower.includes('apelación') ||
-            lower.includes('ejecución') || lower.includes('remate') || lower.includes('subasta') ||
-            lower.includes('medidas preventivas') || lower.includes('perención')) return { ley_id: 7 };
-        
-        // Ley Violencia Mujer
-        if (lower.includes('violencia mujer') || lower.includes('violencia género') || 
-            lower.includes('violencia doméstica') || lower.includes('medidas protección') ||
-            lower.includes('víctima') || lower.includes('denuncia violencia')) return { ley_id: 9 };
-        
-        // Código Penal
+        // Ley 6 - Código Penal
         if (lower.includes('hurto') || lower.includes('robo') || lower.includes('homicidio') || 
             lower.includes('lesiones') || lower.includes('estafa') || lower.includes('corrupción') ||
             lower.includes('peculado') || lower.includes('pena') || lower.includes('prisión') ||
             lower.includes('delito') || lower.includes('crimen') || lower.includes('extorsión') ||
             lower.includes('secuestro')) return { ley_id: 6 };
         
-        // COPP
+        // Ley 5 - COPP
         if (lower.includes('detención') || lower.includes('flagrancia') || lower.includes('fiscal') || 
             lower.includes('juez') || lower.includes('presentación') || lower.includes('imputado') ||
             lower.includes('juicio oral') || lower.includes('audiencia preliminar')) return { ley_id: 5 };
         
-        // Código Civil
+        // Ley 3 - Código Civil
         if (lower.includes('paternidad') || lower.includes('filiacion') || lower.includes('hijo') || 
             lower.includes('matrimonio') || lower.includes('divorcio') || lower.includes('alimentos') ||
             lower.includes('herencia') || lower.includes('testamento') || lower.includes('sucesion') ||
@@ -256,18 +332,65 @@ async function clasificarConsulta(pregunta) {
             lower.includes('prescripcion') || lower.includes('daños') || lower.includes('perjuicios') ||
             lower.includes('propiedad') || lower.includes('posesion') || lower.includes('usucapion')) return { ley_id: 3 };
         
-        // Comercio
+        // Ley 7 - CPC
+        if (lower.includes('demanda') || lower.includes('juicio') || lower.includes('procedimiento') ||
+            lower.includes('pruebas') || lower.includes('testigos') || lower.includes('embargo') ||
+            lower.includes('intimación') || lower.includes('interdicto') || lower.includes('apelación') ||
+            lower.includes('ejecución') || lower.includes('remate') || lower.includes('subasta')) return { ley_id: 7 };
+        
+        // Ley 9 - Violencia Mujer
+        if (lower.includes('violencia mujer') || lower.includes('violencia género') || 
+            lower.includes('violencia doméstica') || lower.includes('medidas protección') ||
+            lower.includes('víctima') || lower.includes('denuncia violencia')) return { ley_id: 9 };
+        
+        // Ley 4 - Comercio
         if (lower.includes('letra') || lower.includes('comercio') || lower.includes('pagare') || 
             lower.includes('cheque') || lower.includes('empresa') || lower.includes('sociedad')) return { ley_id: 4 };
         
-        // LPH
+        // Ley 2 - LPH
         if (lower.includes('propiedad horizontal') || lower.includes('condominio') || lower.includes('vecino')) return { ley_id: 2 };
         
-        // CRBV
+        // Ley 1 - CRBV
         if (lower.includes('constitución') || lower.includes('amparo') || lower.includes('derechos humanos')) return { ley_id: 1 };
+        
+        // Ley 8 - Arrendamiento Vivienda
+        if (lower.includes('arrendamiento vivienda') || lower.includes('desalojo')) return { ley_id: 8 };
+        
+        // Ley 11 - Registros
+        if (lower.includes('registro') || lower.includes('notaría') || lower.includes('protocolización')) return { ley_id: 11 };
         
         return { ley_id: 3 };
     }
+}
+
+// ========== FORZAR ARTÍCULOS EN CANDIDATOS ==========
+async function forzarArticulosClave(pregunta, candidatos, leyId) {
+    const lower = pregunta.toLowerCase();
+    const articulosForzados = [];
+    
+    // Detectar qué temas aparecen en la pregunta
+    for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
+        if (lower.includes(tema)) {
+            console.log(`🔑 Forzando artículos para tema: "${tema}"`);
+            for (const numArt of articulos) {
+                const articulo = await buscarArticuloPorNumero(leyId, numArt);
+                if (articulo) {
+                    articulosForzados.push(articulo);
+                    console.log(`✅ Artículo forzado: ${numArt}`);
+                }
+            }
+            break;
+        }
+    }
+    
+    // Combinar: artículos forzados primero, luego los candidatos existentes
+    if (articulosForzados.length > 0) {
+        const idsForzados = new Set(articulosForzados.map(a => a.id));
+        const existentes = candidatos.filter(a => !idsForzados.has(a.id));
+        return [...articulosForzados, ...existentes];
+    }
+    
+    return candidatos;
 }
 
 // ========== RESPUESTA CON 70B (INTELIGENCIA MÁXIMA) ==========
@@ -371,6 +494,9 @@ app.post('/api/consultar', async (req, res) => {
         // 2. BÚSQUEDA VECTORIAL
         let articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 50);
 
+        // 3. FORZAR ARTÍCULOS CLAVE POR TEMA
+        articulosEncontrados = await forzarArticulosClave(pregunta, articulosEncontrados, leyId);
+
         if (articulosEncontrados.length === 0) {
             console.log('🔄 Buscando en todas las leyes...');
             articulosEncontrados = await buscarPorSimilitud(pregunta, null, 50);
@@ -387,10 +513,10 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📚 ${articulosEncontrados.length} artículos encontrados`);
 
-        // 3. GENERAR RESPUESTA CON 70B
+        // 4. GENERAR RESPUESTA CON 70B
         let respuesta = await generarRespuestaDirecta(pregunta, articulosEncontrados, leyId);
 
-        // 4. VALIDAR CITAS
+        // 5. VALIDAR CITAS
         const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosEncontrados);
 
         if (!citasValidas) {
