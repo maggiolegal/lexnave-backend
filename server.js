@@ -217,7 +217,6 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
 // ========== BUSCAR ARTÍCULO POR NÚMERO (CORREGIDO CON ILIKE) ==========
 async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     try {
-        // Buscar por ilike para capturar variaciones de formato (ej: "185", "Artículo 185", "185.")
         const { data, error } = await supabase
             .from('articulos')
             .select('id, numero_articulo, contenido, ley_id')
@@ -398,6 +397,16 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
+    // Extraer artículos forzados para dar instrucción específica a Groq
+    const articulosForzados = [];
+    const lower = pregunta.toLowerCase();
+    for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
+        if (lower.includes(tema)) {
+            articulosForzados.push(...articulos);
+            break;
+        }
+    }
+    
     const mejores = candidatos.slice(0, 15);
     
     let contextoLegal = "";
@@ -405,6 +414,12 @@ async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
         const a = mejores[i];
         const texto = a.contenido.substring(0, 350);
         contextoLegal += `\nArt. ${a.numero_articulo}: ${texto}...\n`;
+    }
+    
+    // Instrucción forzada para Groq
+    let instruccionForzada = "";
+    if (articulosForzados.length > 0) {
+        instruccionForzada = `\n⚠️ DEBES citar el(los) artículo(s) ${articulosForzados.join(', ')} en tu respuesta.`;
     }
     
     const systemPrompt = `
@@ -415,7 +430,7 @@ Eres "LexnaVe", asistente jurídico experto en leyes venezolanas.
 2. Lee todos los artículos del contexto.
 3. Selecciona el artículo con MÁS coincidencias con las palabras clave.
 4. Cita el artículo TEXTUALMENTE entre comillas.
-5. NO inventes artículos. Si no encuentras, di "No tengo información suficiente".
+5. NO inventes artículos. Si no encuentras, di "No tengo información suficiente".${instruccionForzada}
 
 ESTRUCTURA OBLIGATORIA:
 1. INTRODUCCIÓN (2 líneas)
@@ -431,7 +446,7 @@ ${contextoLegal}
 
 PREGUNTA: "${pregunta}"
 
-INSTRUCCIÓN: Responde con la estructura indicada.
+INSTRUCCIÓN: Responde con la estructura indicada.${instruccionForzada}
 `;
 
     try {
@@ -468,6 +483,8 @@ async function verificarCitasEnRespuesta(respuesta, candidatos) {
         const num = art.numero_articulo.toString().replace(/\D/g, '');
         if (num) idsContexto.push(parseInt(num));
     }
+    
+    console.log(`📚 Artículos en contexto: ${idsContexto.join(', ')}`);
     
     const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
     if (invalidos.length > 0) {
