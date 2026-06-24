@@ -33,6 +33,15 @@ const LEY_MAP = {
     11: "Ley de Registros y Notarías"
 };
 
+// ========== NORMALIZAR TEXTO (ELIMINAR TILDES Y CARACTERES ESPECIALES) ==========
+function normalizarTexto(texto) {
+    return texto
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Elimina tildes
+        .replace(/[^a-z0-9 ]/g, '');      // Elimina caracteres especiales
+}
+
 // ========== FORZAR ARTÍCULOS POR TEMA ==========
 const FORZAR_ARTICULOS = {
     // Código Penal (Ley 6)
@@ -41,7 +50,7 @@ const FORZAR_ARTICULOS = {
     'homicidio': ['405', '406', '409'],
     'lesiones': ['413', '414', '415'],
     'estafa': ['461', '462'],
-    'corrupción': ['60', '61', '62'],
+    'corrupcion': ['60', '61', '62'],
     'peculado': ['63', '64'],
     'cohecho': ['67', '68'],
     'secuestro': ['460'],
@@ -74,6 +83,7 @@ const FORZAR_ARTICULOS = {
     'embargo': ['585', '586', '587'],
     'demanda': ['340'],
     'apelacion': ['340', '341'],
+    'ejecucion': ['650', '651', '652'],
     
     // Ley Violencia Mujer (Ley 9)
     'violencia mujer': ['1', '2', '3', '4', '5'],
@@ -214,7 +224,7 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== BUSCAR ARTÍCULO POR NÚMERO (MEJORADA CON TEXTTSEARCH) ==========
+// ========== BUSCAR ARTÍCULO POR NÚMERO ==========
 async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     try {
         // Intentar 1: búsqueda por textSearch en contenido
@@ -388,14 +398,15 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== FORZAR ARTÍCULOS EN CANDIDATOS ==========
+// ========== FORZAR ARTÍCULOS EN CANDIDATOS (CON NORMALIZACIÓN) ==========
 async function forzarArticulosClave(pregunta, candidatos, leyId) {
-    const lower = pregunta.toLowerCase();
+    const preguntaNormalizada = normalizarTexto(pregunta);
     const articulosForzados = [];
     
     for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
-        if (lower.includes(tema)) {
-            console.log(`🔑 Forzando artículos para tema: "${tema}"`);
+        const temaNormalizado = normalizarTexto(tema);
+        if (preguntaNormalizada.includes(temaNormalizado)) {
+            console.log(`🔑 Tema detectado: "${tema}"`);
             for (const numArt of articulos) {
                 const articulo = await buscarArticuloPorNumero(leyId, numArt);
                 if (articulo) {
@@ -422,7 +433,8 @@ async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const articulosForzados = [];
     const lower = pregunta.toLowerCase();
     for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
-        if (lower.includes(tema)) {
+        const temaNormalizado = normalizarTexto(tema);
+        if (normalizarTexto(lower).includes(temaNormalizado)) {
             articulosForzados.push(...articulos);
             break;
         }
