@@ -1,9 +1,9 @@
 import express from 'express';
 import cors from 'cors';
+import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
 import { WebSocket } from 'ws';
 import { pipeline } from '@xenova/transformers';
-import OpenAI from 'openai';
 
 const app = express();
 app.use(cors());
@@ -16,11 +16,7 @@ const supabase = createClient(
     { realtime: { transport: WebSocket } }
 );
 
-// ========== DEEPSEEK CONFIGURACIÓN ==========
-const deepseek = new OpenAI({
-    baseURL: 'https://api.deepseek.com',
-    apiKey: process.env.DEEPSEEK_API_KEY,
-});
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // ========== MAPEO DE LEYES ==========
 const LEY_MAP = {
@@ -157,47 +153,54 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== DEEPSEEK: CLASIFICAR CONSULTA ==========
+// ========== CLASIFICACIÓN CON 8B (RÁPIDO Y BARATO) ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
-    Eres un experto en derecho venezolano. Lee la pregunta y determina qué ley aplica.
+    Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
+    
+    CRITERIOS:
+    - prescripción, daños, perjuicios, accidente → 3
+    - divorcio, matrimonio, alimentos → 3
+    - servidumbre, luz natural, muro → 3
+    - hurto, robo, penal → 6
+    - detención, flagrancia → 5
+    - letra de cambio, comercio → 4
+    - propiedad horizontal, condominio, vecino → 2
+    - constitución, amparo → 1
+    - procedimiento, juicio, demanda → 7
 
-    Leyes disponibles:
-    1: CRBV (Constitución)
-    2: LPH (Ley de Propiedad Horizontal)
-    3: Código Civil
-    4: Código de Comercio
-    5: COPP (Código Orgánico Procesal Penal)
-    6: Código Penal
-    7: CPC (Código de Procedimiento Civil)
-    8: Arrendamiento Vivienda
-    9: Violencia Mujer
-    10: Arrendamiento Comercial
-    11: Registros
-
-    Pregunta: "${pregunta}"
-
-    Responde SOLO con JSON: {"ley_id": número}
+    Consulta: "${pregunta}"
     `;
 
     try {
-        const response = await deepseek.chat.completions.create({
+        const response = await groq.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
-            model: 'deepseek-v4-flash',
+            model: 'llama-3.1-8b-instant',
             temperature: 0.1,
+            response_format: { type: "json_object" },
             max_tokens: 50
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación (DeepSeek): Ley ${result.ley_id}`);
+        console.log(`📋 Clasificación (8B): Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("⚠️ Clasificación falló, usando fallback (Código Civil)");
+        console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
+        const lower = pregunta.toLowerCase();
+        if (lower.includes('prescripcion') || lower.includes('daños') || lower.includes('accidente')) return { ley_id: 3 };
+        if (lower.includes('divorcio') || lower.includes('matrimonio')) return { ley_id: 3 };
+        if (lower.includes('servidumbre') || lower.includes('luz natural')) return { ley_id: 3 };
+        if (lower.includes('hurto') || lower.includes('robo')) return { ley_id: 6 };
+        if (lower.includes('detención') || lower.includes('flagrancia')) return { ley_id: 5 };
+        if (lower.includes('letra') || lower.includes('comercio')) return { ley_id: 4 };
+        if (lower.includes('propiedad horizontal') || lower.includes('condominio')) return { ley_id: 2 };
+        if (lower.includes('constitución') || lower.includes('amparo')) return { ley_id: 1 };
+        if (lower.includes('procedimiento') || lower.includes('juicio') || lower.includes('demanda')) return { ley_id: 7 };
         return { ley_id: 3 };
     }
 }
 
-// ========== DEEPSEEK: GENERAR RESPUESTA ==========
+// ========== RESPUESTA CON 70B (INTELIGENCIA MÁXIMA) ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
@@ -238,12 +241,12 @@ INSTRUCCIÓN: Responde con la estructura indicada.
 `;
 
     try {
-        const response = await deepseek.chat.completions.create({
+        const response = await groq.chat.completions.create({
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: promptFinal }
             ],
-            model: 'deepseek-v4-flash',
+            model: 'llama-3.3-70b-versatile',
             temperature: 0.2,
             max_tokens: 800
         });
@@ -289,7 +292,7 @@ app.post('/api/consultar', async (req, res) => {
     console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
 
     try {
-        // 1. CLASIFICAR CON DEEPSEEK
+        // 1. CLASIFICAR CON 8B
         const clasificacion = await clasificarConsulta(pregunta);
         let leyId = clasificacion.ley_id || 3;
 
@@ -314,7 +317,7 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📚 ${articulosEncontrados.length} artículos encontrados`);
 
-        // 3. GENERAR RESPUESTA CON DEEPSEEK
+        // 3. GENERAR RESPUESTA CON 70B
         let respuesta = await generarRespuestaDirecta(pregunta, articulosEncontrados, leyId);
 
         // 4. VALIDAR CITAS
