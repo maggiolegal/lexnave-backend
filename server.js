@@ -214,10 +214,10 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== BUSCAR ARTÍCULO POR NÚMERO ==========
+// ========== BUSCAR ARTÍCULO POR NÚMERO (MEJORADA) ==========
 async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     try {
-        // Intentar búsqueda exacta primero
+        // Intentar 1: búsqueda exacta
         let { data, error } = await supabase
             .from('articulos')
             .select('id, numero_articulo, contenido, ley_id')
@@ -225,7 +225,7 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
             .eq('numero_articulo', numeroArticulo)
             .maybeSingle();
         
-        // Si no, buscar con ilike
+        // Intentar 2: búsqueda por ilike
         if (!data) {
             const { data: dataIlike, error: errorIlike } = await supabase
                 .from('articulos')
@@ -237,7 +237,20 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
             error = errorIlike;
         }
         
+        // Intentar 3: buscar en el contenido (si el número está en el texto)
+        if (!data) {
+            const { data: dataContenido, error: errorContenido } = await supabase
+                .from('articulos')
+                .select('id, numero_articulo, contenido, ley_id')
+                .eq('ley_id', parseInt(leyId))
+                .ilike('contenido', `%Artículo ${numeroArticulo}%`)
+                .maybeSingle();
+            data = dataContenido;
+            error = errorContenido;
+        }
+        
         if (data && !error) {
+            console.log(`✅ Artículo ${numeroArticulo} encontrado: "${data.numero_articulo}"`);
             return {
                 id: data.id,
                 numero_articulo: data.numero_articulo,
@@ -247,6 +260,8 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
                 similitud: 0.99
             };
         }
+        
+        console.log(`❌ Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
         return null;
     } catch (e) {
         console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
@@ -388,7 +403,6 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
                 const articulo = await buscarArticuloPorNumero(leyId, numArt);
                 if (articulo) {
                     articulosForzados.push(articulo);
-                    console.log(`✅ Artículo forzado: ${numArt}`);
                 }
             }
             break;
@@ -404,7 +418,7 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     return candidatos;
 }
 
-// ========== RESPUESTA CON 8B (PARA AHORRAR TOKENS) ==========
+// ========== RESPUESTA CON 8B ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
