@@ -214,26 +214,51 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== BUSCAR ARTÍCULO POR NÚMERO ==========
+// ========== BUSCAR ARTÍCULO POR NÚMERO (MEJORADA CON TEXTTSEARCH) ==========
 async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     try {
+        // Intentar 1: búsqueda por textSearch en contenido
         const { data, error } = await supabase
             .from('articulos')
             .select('id, numero_articulo, contenido, ley_id')
             .eq('ley_id', parseInt(leyId))
-            .eq('numero_articulo', numeroArticulo)
-            .maybeSingle();
+            .textSearch('contenido', `Artículo ${numeroArticulo}`)
+            .limit(1);
         
-        if (data && !error) {
+        if (data && data.length > 0 && !error) {
+            const art = data[0];
+            console.log(`✅ Artículo ${numeroArticulo} encontrado por textSearch: "${art.numero_articulo}"`);
             return {
-                id: data.id,
-                numero_articulo: data.numero_articulo,
-                contenido: data.contenido,
-                ley_id: data.ley_id,
-                ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
+                id: art.id,
+                numero_articulo: art.numero_articulo,
+                contenido: art.contenido,
+                ley_id: art.ley_id,
+                ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
                 similitud: 0.99
             };
         }
+        
+        // Intentar 2: búsqueda por ilike en numero_articulo
+        const { data: dataIlike, error: errorIlike } = await supabase
+            .from('articulos')
+            .select('id, numero_articulo, contenido, ley_id')
+            .eq('ley_id', parseInt(leyId))
+            .ilike('numero_articulo', `%${numeroArticulo}%`)
+            .maybeSingle();
+        
+        if (dataIlike && !errorIlike) {
+            console.log(`✅ Artículo ${numeroArticulo} encontrado por ilike: "${dataIlike.numero_articulo}"`);
+            return {
+                id: dataIlike.id,
+                numero_articulo: dataIlike.numero_articulo,
+                contenido: dataIlike.contenido,
+                ley_id: dataIlike.ley_id,
+                ley_nombre: LEY_MAP[dataIlike.ley_id] || 'Ley',
+                similitud: 0.99
+            };
+        }
+        
+        console.log(`❌ Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
         return null;
     } catch (e) {
         console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
@@ -241,7 +266,7 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     }
 }
 
-// ========== CLASIFICACIÓN CON 8B (COMPLETA) ==========
+// ========== CLASIFICACIÓN CON 8B ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
     Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
@@ -368,7 +393,6 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     const lower = pregunta.toLowerCase();
     const articulosForzados = [];
     
-    // Detectar qué temas aparecen en la pregunta
     for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
         if (lower.includes(tema)) {
             console.log(`🔑 Forzando artículos para tema: "${tema}"`);
@@ -376,14 +400,12 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
                 const articulo = await buscarArticuloPorNumero(leyId, numArt);
                 if (articulo) {
                     articulosForzados.push(articulo);
-                    console.log(`✅ Artículo forzado: ${numArt}`);
                 }
             }
             break;
         }
     }
     
-    // Combinar: artículos forzados primero, luego los candidatos existentes
     if (articulosForzados.length > 0) {
         const idsForzados = new Set(articulosForzados.map(a => a.id));
         const existentes = candidatos.filter(a => !idsForzados.has(a.id));
@@ -393,9 +415,18 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     return candidatos;
 }
 
-// ========== RESPUESTA CON 70B (INTELIGENCIA MÁXIMA) ==========
+// ========== RESPUESTA CON 8B ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
+    
+    const articulosForzados = [];
+    const lower = pregunta.toLowerCase();
+    for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
+        if (lower.includes(tema)) {
+            articulosForzados.push(...articulos);
+            break;
+        }
+    }
     
     const mejores = candidatos.slice(0, 15);
     
@@ -406,6 +437,11 @@ async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
         contextoLegal += `\nArt. ${a.numero_articulo}: ${texto}...\n`;
     }
     
+    let instruccionForzada = "";
+    if (articulosForzados.length > 0) {
+        instruccionForzada = `\n⚠️ DEBES citar el(los) artículo(s) ${articulosForzados.join(', ')} en tu respuesta.`;
+    }
+    
     const systemPrompt = `
 Eres "LexnaVe", asistente jurídico experto en leyes venezolanas.
 
@@ -414,7 +450,7 @@ Eres "LexnaVe", asistente jurídico experto en leyes venezolanas.
 2. Lee todos los artículos del contexto.
 3. Selecciona el artículo con MÁS coincidencias con las palabras clave.
 4. Cita el artículo TEXTUALMENTE entre comillas.
-5. NO inventes artículos. Si no encuentras, di "No tengo información suficiente".
+5. NO inventes artículos. Si no encuentras, di "No tengo información suficiente".${instruccionForzada}
 
 ESTRUCTURA OBLIGATORIA:
 1. INTRODUCCIÓN (2 líneas)
@@ -430,7 +466,7 @@ ${contextoLegal}
 
 PREGUNTA: "${pregunta}"
 
-INSTRUCCIÓN: Responde con la estructura indicada.
+INSTRUCCIÓN: Responde con la estructura indicada.${instruccionForzada}
 `;
 
     try {
@@ -439,7 +475,7 @@ INSTRUCCIÓN: Responde con la estructura indicada.
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: promptFinal }
             ],
-            model: 'llama-3.3-70b-versatile',
+            model: 'llama-3.1-8b-instant',
             temperature: 0.2,
             max_tokens: 800
         });
@@ -451,8 +487,8 @@ INSTRUCCIÓN: Responde con la estructura indicada.
     }
 }
 
-// ========== VALIDAR CITAS (CORREGIDO CON LISTA BLANCA) ==========
-async function verificarCitasEnRespuesta(respuesta, candidatos, leyId) {
+// ========== VALIDAR CITAS ==========
+async function verificarCitasEnRespuesta(respuesta, candidatos) {
     const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
     const matches = respuesta.matchAll(regex);
     const articulosMencionados = [...new Set([...matches].map(m => parseInt(m[1])))];
@@ -469,26 +505,9 @@ async function verificarCitasEnRespuesta(respuesta, candidatos, leyId) {
     }
     
     const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
-    
     if (invalidos.length > 0) {
-        // Lista blanca de artículos clave permitidos por ley
-        const articulosClavePermitidos = {
-            3: ['185', '1969', '1185', '208', '215'], // CCV: divorcio, prescripción, daños, paternidad
-            5: ['373', '295'], // COPP: flagrancia, acto conclusivo
-            7: ['640', '340']  // CPC: intimación, demanda
-        };
-
-        const leyClaves = articulosClavePermitidos[leyId] || [];
-        const invalidosReales = invalidos.filter(a => !leyClaves.includes(a.toString()));
-
-        if (invalidosReales.length > 0) {
-            console.log(`⚠️ Artículos alucinados reales: ${invalidosReales.join(', ')}`);
-            return false;
-        }
-        
-        // Si solo hay claves permitidas, considerar válido
-        console.log(`✅ Citas válidas (incluye artículos clave del tema)`);
-        return true;
+        console.log(`⚠️ Artículos alucinados: ${invalidos.join(', ')}`);
+        return false;
     }
     
     console.log(`✅ Artículos citados existen en el contexto`);
@@ -502,16 +521,12 @@ app.post('/api/consultar', async (req, res) => {
     console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
 
     try {
-        // 1. CLASIFICAR CON 8B
         const clasificacion = await clasificarConsulta(pregunta);
         let leyId = clasificacion.ley_id || 3;
 
         console.log(`🔍 Buscando en ${LEY_MAP[leyId]}`);
         
-        // 2. BÚSQUEDA VECTORIAL
         let articulosEncontrados = await buscarPorSimilitud(pregunta, leyId, 50);
-
-        // 3. FORZAR ARTÍCULOS CLAVE POR TEMA
         articulosEncontrados = await forzarArticulosClave(pregunta, articulosEncontrados, leyId);
 
         if (articulosEncontrados.length === 0) {
@@ -530,18 +545,16 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📚 ${articulosEncontrados.length} artículos encontrados`);
 
-        // 4. GENERAR RESPUESTA CON 70B
         let respuesta = await generarRespuestaDirecta(pregunta, articulosEncontrados, leyId);
 
-        // 5. VALIDAR CITAS (AHORA RECIBE leyId)
-        const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosEncontrados, leyId);
+        const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosEncontrados);
 
         if (!citasValidas) {
             console.log('⚠️ Regenerando...');
             const masCandidatos = await buscarPorSimilitud(pregunta, leyId, 80);
             if (masCandidatos.length > articulosEncontrados.length) {
                 respuesta = await generarRespuestaDirecta(pregunta, masCandidatos, leyId);
-                const citasValidas2 = await verificarCitasEnRespuesta(respuesta, masCandidatos, leyId);
+                const citasValidas2 = await verificarCitasEnRespuesta(respuesta, masCandidatos);
                 if (!citasValidas2) {
                     return res.json({
                         respuesta: "⚠️ No tengo información suficiente. Consulta con un abogado."
