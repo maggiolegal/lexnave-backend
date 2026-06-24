@@ -153,21 +153,31 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== CLASIFICACIÓN CON 8B (RÁPIDO Y BARATO) ==========
+// ========== CLASIFICACIÓN CON 8B (CRITERIOS COMPLETOS) ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
     Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
     
     CRITERIOS:
-    - prescripción, daños, perjuicios, accidente → 3
-    - divorcio, matrimonio, alimentos → 3
-    - servidumbre, luz natural, muro → 3
-    - hurto, robo, penal → 6
-    - detención, flagrancia → 5
-    - letra de cambio, comercio → 4
-    - propiedad horizontal, condominio, vecino → 2
-    - constitución, amparo → 1
-    - procedimiento, juicio, demanda → 7
+    
+    === CÓDIGO CIVIL (Ley 3) ===
+    PERSONAS: nacionalidad, domicilio, estado civil, matrimonio, divorcio, separación, filiación, paternidad, maternidad, reconocimiento, impugnación, hijo, adoptación, patria potestad, alimentos, tutela, emancipación, interdicción, inhabilitación, ausencia, registro civil
+    
+    BIENES Y PROPIEDAD: bienes, muebles, inmuebles, propiedad, posesión, comunidad, copropiedad, accesión, servidumbre, usufructo, uso, habitación
+    
+    OBLIGACIONES Y CONTRATOS: obligaciones, contrato, donación, venta, permuta, arrendamiento, alquiler, comodato, mutuo, depósito, prenda, hipoteca, anticresis, fianza, sociedad, mandato, transacción, seguro
+    
+    SUCESIONES: herencia, testamento, sucesión, albacea, legado, legitimaria, heredero
+    
+    === OTRAS LEYES ===
+    CONSTITUCIÓN (Ley 1): constitución, amparo, derechos humanos, estado de excepción
+    PROPIEDAD HORIZONTAL (Ley 2): propiedad horizontal, condominio, vecino, cuotas mantenimiento
+    COMERCIO (Ley 4): letra de cambio, pagaré, cheque, comercio, sociedad mercantil
+    COPP (Ley 5): detención, flagrancia, fiscal, juez, penal
+    CÓDIGO PENAL (Ley 6): hurto, robo, homicidio, lesiones, pena, prisión
+    CPC (Ley 7): procedimiento, juicio, demanda, citación, pruebas, ejecución
+    ARRENDAMIENTO VIVIENDA (Ley 8): arrendamiento vivienda, desalojo
+    VIOLENCIA MUJER (Ley 9): violencia mujer, violencia género
 
     Consulta: "${pregunta}"
     `;
@@ -187,13 +197,17 @@ async function clasificarConsulta(pregunta) {
     } catch (error) {
         console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
         const lower = pregunta.toLowerCase();
-        if (lower.includes('prescripcion') || lower.includes('daños') || lower.includes('accidente')) return { ley_id: 3 };
-        if (lower.includes('divorcio') || lower.includes('matrimonio')) return { ley_id: 3 };
-        if (lower.includes('servidumbre') || lower.includes('luz natural')) return { ley_id: 3 };
-        if (lower.includes('hurto') || lower.includes('robo')) return { ley_id: 6 };
+        // Código Civil
+        if (lower.includes('paternidad') || lower.includes('filiacion') || lower.includes('hijo') || 
+            lower.includes('matrimonio') || lower.includes('divorcio') || lower.includes('alimentos') ||
+            lower.includes('herencia') || lower.includes('testamento') || lower.includes('sucesion') ||
+            lower.includes('contrato') || lower.includes('arrendamiento') || lower.includes('servidumbre') ||
+            lower.includes('prescripcion') || lower.includes('daños') || lower.includes('perjuicios') ||
+            lower.includes('propiedad') || lower.includes('posesion') || lower.includes('usucapion')) return { ley_id: 3 };
+        if (lower.includes('hurto') || lower.includes('robo') || lower.includes('penal')) return { ley_id: 6 };
         if (lower.includes('detención') || lower.includes('flagrancia')) return { ley_id: 5 };
-        if (lower.includes('letra') || lower.includes('comercio')) return { ley_id: 4 };
-        if (lower.includes('propiedad horizontal') || lower.includes('condominio')) return { ley_id: 2 };
+        if (lower.includes('letra') || lower.includes('comercio') || lower.includes('pagare')) return { ley_id: 4 };
+        if (lower.includes('propiedad horizontal') || lower.includes('condominio') || lower.includes('vecino')) return { ley_id: 2 };
         if (lower.includes('constitución') || lower.includes('amparo')) return { ley_id: 1 };
         if (lower.includes('procedimiento') || lower.includes('juicio') || lower.includes('demanda')) return { ley_id: 7 };
         return { ley_id: 3 };
