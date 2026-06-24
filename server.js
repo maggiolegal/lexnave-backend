@@ -153,23 +153,27 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== CLASIFICACIÓN CON 8B (RÁPIDO Y BARATO) ==========
+// ========== CLASIFICACIÓN INTELIGENTE (SIN KEYWORDS) ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
-    Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
-    
-    CRITERIOS:
-    - prescripción, daños, perjuicios, accidente → 3
-    - divorcio, matrimonio, alimentos → 3
-    - servidumbre, luz natural, muro → 3
-    - hurto, robo, penal → 6
-    - detención, flagrancia → 5
-    - letra de cambio, comercio → 4
-    - propiedad horizontal, condominio, vecino → 2
-    - constitución, amparo → 1
-    - procedimiento, juicio, demanda → 7
+    Eres un experto en derecho venezolano. Lee la pregunta y determina qué ley aplica.
 
-    Consulta: "${pregunta}"
+    Leyes disponibles:
+    1: CRBV (Constitución)
+    2: LPH (Ley de Propiedad Horizontal)
+    3: Código Civil
+    4: Código de Comercio
+    5: COPP (Código Orgánico Procesal Penal)
+    6: Código Penal
+    7: CPC (Código de Procedimiento Civil)
+    8: Arrendamiento Vivienda
+    9: Violencia Mujer
+    10: Arrendamiento Comercial
+    11: Registros
+
+    Pregunta: "${pregunta}"
+
+    Responde SOLO con JSON: {"ley_id": número}
     `;
 
     try {
@@ -185,17 +189,7 @@ async function clasificarConsulta(pregunta) {
         console.log(`📋 Clasificación (8B): Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
-        const lower = pregunta.toLowerCase();
-        if (lower.includes('prescripcion') || lower.includes('daños') || lower.includes('accidente')) return { ley_id: 3 };
-        if (lower.includes('divorcio') || lower.includes('matrimonio')) return { ley_id: 3 };
-        if (lower.includes('servidumbre') || lower.includes('luz natural')) return { ley_id: 3 };
-        if (lower.includes('hurto') || lower.includes('robo')) return { ley_id: 6 };
-        if (lower.includes('detención') || lower.includes('flagrancia')) return { ley_id: 5 };
-        if (lower.includes('letra') || lower.includes('comercio')) return { ley_id: 4 };
-        if (lower.includes('propiedad horizontal') || lower.includes('condominio')) return { ley_id: 2 };
-        if (lower.includes('constitución') || lower.includes('amparo')) return { ley_id: 1 };
-        if (lower.includes('procedimiento') || lower.includes('juicio') || lower.includes('demanda')) return { ley_id: 7 };
+        console.warn("⚠️ Clasificación falló, usando fallback por defecto (Código Civil)");
         return { ley_id: 3 };
     }
 }
@@ -292,7 +286,7 @@ app.post('/api/consultar', async (req, res) => {
     console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
 
     try {
-        // 1. CLASIFICAR CON 8B
+        // 1. CLASIFICAR CON 8B (INTELIGENTE)
         const clasificacion = await clasificarConsulta(pregunta);
         let leyId = clasificacion.ley_id || 3;
 
