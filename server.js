@@ -306,10 +306,10 @@ async function clasificarConsulta(pregunta) {
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación (8B): Ley ${result.ley_id}`);
+        console.log(` Clasificación (8B): Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
+        console.warn("️ Clasificación falló, usando fallback por keywords...");
         const lower = pregunta.toLowerCase();
         
         // Ley 6 - Código Penal
@@ -451,7 +451,7 @@ INSTRUCCIÓN: Responde con la estructura indicada.
     }
 }
 
-// ========== VALIDAR CITAS (CORREGIDO CON LISTA BLANCA) ==========
+// ========== VALIDAR CITAS (MODIFICADO PARA PERMITIR CLAVES) ==========
 async function verificarCitasEnRespuesta(respuesta, candidatos, leyId) {
     const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
     const matches = respuesta.matchAll(regex);
@@ -470,28 +470,23 @@ async function verificarCitasEnRespuesta(respuesta, candidatos, leyId) {
     
     const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
     
-    if (invalidos.length > 0) {
-        // Lista blanca de artículos clave permitidos por ley
-        const articulosClavePermitidos = {
-            3: ['185', '1969', '1185', '208', '215'], // CCV: divorcio, prescripción, daños, paternidad
-            5: ['373', '295'], // COPP: flagrancia, acto conclusivo
-            7: ['640', '340']  // CPC: intimación, demanda
-        };
+    // Lista blanca de artículos clave por ley para evitar falsos positivos
+    const articulosClavePermitidos = {
+        3: ['185', '1969', '1185', '208', '215', '1950'], // CCV: divorcio, prescripción, daños, paternidad
+        5: ['373', '295'], // COPP: flagrancia, acto conclusivo
+        7: ['640', '340', '339']  // CPC: intimación, demanda, ordinario
+    };
 
-        const leyClaves = articulosClavePermitidos[leyId] || [];
-        const invalidosReales = invalidos.filter(a => !leyClaves.includes(a.toString()));
+    const leyClaves = articulosClavePermitidos[leyId] || [];
+    const invalidosReales = invalidos.filter(a => !leyClaves.includes(a.toString()));
 
-        if (invalidosReales.length > 0) {
-            console.log(`⚠️ Artículos alucinados reales: ${invalidosReales.join(', ')}`);
-            return false;
-        }
-        
-        // Si solo hay claves permitidas, considerar válido
-        console.log(`✅ Citas válidas (incluye artículos clave del tema)`);
-        return true;
+    if (invalidosReales.length > 0) {
+        console.log(`⚠️ Artículos alucinados reales: ${invalidosReales.join(', ')}`);
+        return false;
     }
     
-    console.log(`✅ Artículos citados existen en el contexto`);
+    // Si solo hay claves permitidas o artículos válidos, considerar válido
+    console.log(`✅ Citas válidas (incluye artículos clave del tema)`);
     return true;
 }
 
@@ -499,7 +494,7 @@ async function verificarCitasEnRespuesta(respuesta, candidatos, leyId) {
 app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     const timestamp = new Date().toISOString();
-    console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
+    console.log(`${timestamp}  Pregunta: ${pregunta}`);
 
     try {
         // 1. CLASIFICAR CON 8B
@@ -528,12 +523,12 @@ app.post('/api/consultar', async (req, res) => {
             });
         }
 
-        console.log(`📚 ${articulosEncontrados.length} artículos encontrados`);
+        console.log(` ${articulosEncontrados.length} artículos encontrados`);
 
         // 4. GENERAR RESPUESTA CON 70B
         let respuesta = await generarRespuestaDirecta(pregunta, articulosEncontrados, leyId);
 
-        // 5. VALIDAR CITAS (AHORA RECIBE leyId)
+        // 5. VALIDAR CITAS (PASANDO LEY_ID PARA LA LISTA BLANCA)
         const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosEncontrados, leyId);
 
         if (!citasValidas) {
@@ -549,7 +544,7 @@ app.post('/api/consultar', async (req, res) => {
                 }
             } else {
                 return res.json({
-                    respuesta: "⚠️ No tengo información suficiente. Consulta con un abogado."
+                    respuesta: "️ No tengo información suficiente. Consulta con un abogado."
                 });
             }
         }
@@ -569,5 +564,5 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
     console.log('🚀 LexnaVe Backend iniciando...');
     await initEmbedder();
-    console.log(`🚀 LexnaVe Backend activo en puerto ${PORT}`);
+    console.log(` LexnaVe Backend activo en puerto ${PORT}`);
 });
