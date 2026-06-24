@@ -214,14 +214,15 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== BUSCAR ARTÍCULO POR NÚMERO ==========
+// ========== BUSCAR ARTÍCULO POR NÚMERO (CORREGIDO CON ILIKE) ==========
 async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     try {
+        // Buscar por ilike para capturar variaciones de formato (ej: "185", "Artículo 185", "185.")
         const { data, error } = await supabase
             .from('articulos')
             .select('id, numero_articulo, contenido, ley_id')
             .eq('ley_id', parseInt(leyId))
-            .eq('numero_articulo', numeroArticulo)
+            .ilike('numero_articulo', `%${numeroArticulo}%`)
             .maybeSingle();
         
         if (data && !error) {
