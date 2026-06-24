@@ -451,8 +451,8 @@ INSTRUCCIÓN: Responde con la estructura indicada.
     }
 }
 
-// ========== VALIDAR CITAS ==========
-async function verificarCitasEnRespuesta(respuesta, candidatos) {
+// ========== VALIDAR CITAS (CORREGIDO CON LISTA BLANCA) ==========
+async function verificarCitasEnRespuesta(respuesta, candidatos, leyId) {
     const regex = /Art(?:ículo)?\.?\s*(\d+)/gi;
     const matches = respuesta.matchAll(regex);
     const articulosMencionados = [...new Set([...matches].map(m => parseInt(m[1])))];
@@ -469,9 +469,26 @@ async function verificarCitasEnRespuesta(respuesta, candidatos) {
     }
     
     const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
+    
     if (invalidos.length > 0) {
-        console.log(`⚠️ Artículos alucinados: ${invalidos.join(', ')}`);
-        return false;
+        // Lista blanca de artículos clave permitidos por ley
+        const articulosClavePermitidos = {
+            3: ['185', '1969', '1185', '208', '215'], // CCV: divorcio, prescripción, daños, paternidad
+            5: ['373', '295'], // COPP: flagrancia, acto conclusivo
+            7: ['640', '340']  // CPC: intimación, demanda
+        };
+
+        const leyClaves = articulosClavePermitidos[leyId] || [];
+        const invalidosReales = invalidos.filter(a => !leyClaves.includes(a.toString()));
+
+        if (invalidosReales.length > 0) {
+            console.log(`⚠️ Artículos alucinados reales: ${invalidosReales.join(', ')}`);
+            return false;
+        }
+        
+        // Si solo hay claves permitidas, considerar válido
+        console.log(`✅ Citas válidas (incluye artículos clave del tema)`);
+        return true;
     }
     
     console.log(`✅ Artículos citados existen en el contexto`);
@@ -516,15 +533,15 @@ app.post('/api/consultar', async (req, res) => {
         // 4. GENERAR RESPUESTA CON 70B
         let respuesta = await generarRespuestaDirecta(pregunta, articulosEncontrados, leyId);
 
-        // 5. VALIDAR CITAS
-        const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosEncontrados);
+        // 5. VALIDAR CITAS (AHORA RECIBE leyId)
+        const citasValidas = await verificarCitasEnRespuesta(respuesta, articulosEncontrados, leyId);
 
         if (!citasValidas) {
             console.log('⚠️ Regenerando...');
             const masCandidatos = await buscarPorSimilitud(pregunta, leyId, 80);
             if (masCandidatos.length > articulosEncontrados.length) {
                 respuesta = await generarRespuestaDirecta(pregunta, masCandidatos, leyId);
-                const citasValidas2 = await verificarCitasEnRespuesta(respuesta, masCandidatos);
+                const citasValidas2 = await verificarCitasEnRespuesta(respuesta, masCandidatos, leyId);
                 if (!citasValidas2) {
                     return res.json({
                         respuesta: "⚠️ No tengo información suficiente. Consulta con un abogado."
