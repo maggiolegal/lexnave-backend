@@ -42,9 +42,9 @@ function normalizarTexto(texto) {
         .replace(/[^a-z0-9 ]/g, '');      // Elimina caracteres especiales
 }
 
-// ========== FORZAR ARTÍCULOS POR TEMA ==========
+// ========== FORZAR ARTÍCULOS POR TEMA (ACTUALIZADO CON TODOS LOS TEMAS DE CRBV) ==========
 const FORZAR_ARTICULOS = {
-    // Código Penal (Ley 6)
+    // ===== Código Penal (Ley 6) =====
     'hurto': ['451', '452', '453'],
     'robo': ['455', '456', '457'],
     'homicidio': ['405', '406', '409'],
@@ -56,8 +56,9 @@ const FORZAR_ARTICULOS = {
     'secuestro': ['460'],
     'extorsion': ['460'],
     
-    // Código Civil (Ley 3)
+    // ===== Código Civil (Ley 3) =====
     'prescripcion': ['1969', '1950', '1951', '1952'],
+    'plazo': ['1969'],
     'divorcio': ['185', '186', '187'],
     'matrimonio': ['82', '83', '84', '85', '86', '87', '88'],
     'paternidad': ['210', '211', '212', '215'],
@@ -66,10 +67,18 @@ const FORZAR_ARTICULOS = {
     'herencia': ['991', '992', '993', '994'],
     'testamento': ['991', '992', '993', '994'],
     'servidumbre': ['571', '572', '573', '574', '575', '576', '577'],
+    'luz natural': ['571', '572', '573', '574'],
+    'muro': ['571', '572', '573'],
     'contrato': ['1137', '1140', '1145'],
     'arrendamiento': ['1576', '1577', '1578'],
+    'accidente': ['1185', '1190', '1810'],
+    'choque': ['1185', '1190', '1810'],
+    'daños': ['1185', '1190', '1810', '1969'],
+    'perjuicios': ['1185', '1190', '1810', '1969'],
+    'responsabilidad': ['1185', '1190'],
+    'daño': ['1185', '1190', '1810'],
     
-    // COPP (Ley 5)
+    // ===== COPP (Ley 5) =====
     'flagrancia': ['373'],
     'detencion': ['373', '374', '375'],
     'fianza': ['244', '245'],
@@ -77,7 +86,7 @@ const FORZAR_ARTICULOS = {
     'acto conclusivo': ['295'],
     'apelacion': ['438', '439'],
     
-    // CPC (Ley 7)
+    // ===== CPC (Ley 7) =====
     'intimacion': ['640', '641', '642'],
     'interdicto': ['782', '783', '784', '785'],
     'embargo': ['585', '586', '587'],
@@ -85,23 +94,90 @@ const FORZAR_ARTICULOS = {
     'apelacion': ['340', '341'],
     'ejecucion': ['650', '651', '652'],
     
-    // Ley Violencia Mujer (Ley 9)
+    // ===== CRBV - BLOQUE DE GARANTÍAS (Título III) =====
+    'derechos humanos': ['19', '20', '21', '22', '23'],
+    'derecho a la vida': ['43'],
+    'derecho a la libertad': ['44', '45', '46'],
+    'integridad personal': ['46'],
+    'debido proceso': ['49'],
+    'derecho a la defensa': ['49'],
+    'libertad de expresion': ['57'],
+    'libertad de transito': ['50'],
+    'libertad de reunion': ['52'],
+    'libertad de asociacion': ['52'],
+    'derecho a la informacion': ['58'],
+    'derecho al trabajo': ['87', '88', '89', '90', '91', '92'],
+    'derecho a la salud': ['83', '84'],
+    'derecho a la educacion': ['102', '103', '104'],
+    'derecho a la vivienda': ['82'],
+    'derecho a la seguridad social': ['86'],
+    'derecho a la alimentacion': ['84'],
+    'derecho al agua': ['84'],
+    'derecho al ambiente': ['127'],
+    'derecho a la cultura': ['98', '99'],
+    'derecho al deporte': ['111'],
+    'derecho de los pueblos indigenas': ['119', '120', '121', '122', '123'],
+    'derecho a la igualdad': ['21'],
+    'derecho a la no discriminacion': ['21'],
+    'amparo': ['26', '27', '49'],
+    'habeas corpus': ['27'],
+    'derecho a la propiedad': ['115'],
+    'derecho a la familia': ['75', '76', '77', '78', '79', '80', '81'],
+    'derecho de los niños': ['78', '79'],
+    'derecho de los adolescentes': ['79'],
+    'derecho de los adultos mayores': ['80'],
+    'derecho de las personas con discapacidad': ['81'],
+    'derecho a la mujer': ['88', '89'],
+    
+    // ===== CRBV - BLOQUE DE ESTRUCTURA ESTATAL (Títulos IV, V, VI) =====
+    'poder legislativo': ['186', '187', '188', '189', '190', '191', '192', '193', '194', '195'],
+    'asamblea nacional': ['186', '187', '188', '189', '190', '191', '192', '193', '194', '195'],
+    'poder ejecutivo': ['226', '227', '228', '229', '230', '231', '232', '233', '234', '235', '236'],
+    'presidente': ['226', '227', '228', '229', '230', '231', '232', '233', '234', '235', '236'],
+    'vicepresidente': ['238', '239', '240'],
+    'ministros': ['241', '242', '243', '244'],
+    'poder judicial': ['253', '254', '255', '256', '257', '258', '259', '260', '261', '262'],
+    'tribunal supremo de justicia': ['253', '254', '255', '256', '257', '258', '259', '260', '261', '262'],
+    'poder ciudadano': ['273', '274', '275', '276', '277', '278', '279', '280', '281'],
+    'consejo moral republicano': ['273', '274', '275', '276'],
+    'fiscalia': ['284', '285', '286', '287', '288', '289', '290', '291', '292', '293'],
+    'contraloria': ['287', '288', '289', '290', '291', '292', '293'],
+    'defensoria del pueblo': ['280', '281', '282', '283'],
+    'poder electoral': ['292', '293', '294', '295', '296', '297', '298'],
+    'cne': ['292', '293', '294', '295', '296', '297', '298'],
+    'gobernador': ['160', '161', '162', '163'],
+    'consejo legislativo': ['162', '163'],
+    'sistema socioeconomico': ['299', '300', '301', '302', '303', '304', '305', '306', '307', '308'],
+    'banco central de venezuela': ['318', '319', '320', '321'],
+    
+    // ===== CRBV - BLOQUE DE SEGURIDAD Y DEFENSA (Título VII) =====
+    'seguridad de la nacion': ['322', '323', '324', '325', '326', '327', '328', '329', '330', '331', '332', '333', '334', '335', '336'],
+    'seguridad nacional': ['322', '323', '324', '325', '326', '327', '328', '329', '330', '331', '332', '333', '334', '335', '336'],
+    'defensa nacional': ['322', '323', '324', '325', '326', '327', '328', '329', '330', '331', '332', '333', '334', '335', '336'],
+    'estado de excepcion': ['337', '338', '339', '340'],
+    'estados de excepcion': ['337', '338', '339', '340'],
+    'fuerzas armadas': ['328', '329', '330', '331', '332', '333', '334', '335', '336'],
+    'seguridad ciudadana': ['55', '56'],
+    
+    // ===== CRBV - BLOQUE DE CONTROL CONSTITUCIONAL (Título VIII) =====
+    'control constitucional': ['334', '335', '336'],
+    'inconstitucionalidad': ['334', '335', '336'],
+    'reforma constitucional': ['341', '342', '343', '344', '345', '346', '347', '348', '349', '350'],
+    'enmienda': ['341', '342', '343', '344', '345'],
+    'asamblea nacional constituyente': ['347', '348', '349', '350'],
+    
+    // ===== Ley Violencia Mujer (Ley 9) =====
     'violencia mujer': ['1', '2', '3', '4', '5'],
     'medidas proteccion': ['1', '2', '3'],
     
-    // LPH (Ley 2)
+    // ===== LPH (Ley 2) =====
     'propiedad horizontal': ['5', '7', '8', '9', '14'],
     'cuotas mantenimiento': ['14', '7', '5'],
     
-    // Código de Comercio (Ley 4)
+    // ===== Código de Comercio (Ley 4) =====
     'letra cambio': ['410'],
     'pagare': ['410'],
-    'cheque': ['410'],
-    
-    // CRBV (Ley 1)
-    'amparo': ['26', '27', '49'],
-    'estado excepcion': ['337', '338', '339'],
-    'derecho propiedad': ['115']
+    'cheque': ['410']
 };
 
 // ========== MODELO DE EMBEDDING LOCAL ==========
@@ -283,50 +359,41 @@ async function clasificarConsulta(pregunta) {
     
     === CRITERIOS COMPLETOS ===
     
-    LEY 1 - CONSTITUCIÓN: constitución, amparo, derechos humanos, estado de excepción, debido proceso, derecho propiedad, libertad expresión, derecho trabajo, derecho salud, derecho educación
+    LEY 1 - CONSTITUCIÓN:
+    - derechos humanos, garantías, debido proceso, libertad, igualdad
+    - amparo, habeas corpus, propiedad
+    - salud, educación, vivienda, trabajo, seguridad social
+    - pueblos indígenas, ambiente
+    - asamblea nacional, presidente, vicepresidente, ministros
+    - tribunal supremo de justicia, poder ciudadano, fiscalía, contraloría, defensoría
+    - poder electoral, CNE, gobernador, consejo legislativo
+    - seguridad de la nación, defensa nacional, estado de excepción, fuerzas armadas
+    - control constitucional, inconstitucionalidad, reforma constitucional, enmienda
     
-    LEY 2 - LPH: propiedad horizontal, condominio, vecino, cuotas mantenimiento, administrador, asamblea copropietarios, cosas comunes, gastos comunes, documento condominio
+    LEY 2 - LPH: propiedad horizontal, condominio, vecino, cuotas mantenimiento
     
     LEY 3 - CÓDIGO CIVIL:
-    PERSONAS: nacionalidad, domicilio, estado civil, matrimonio, divorcio, separación, filiación, paternidad, maternidad, hijo, adopción, patria potestad, alimentos, tutela, emancipación, interdicción, inhabilitación, ausencia, registro civil
-    BIENES: bienes, muebles, inmuebles, propiedad, posesión, comunidad, copropiedad, accesión, servidumbre, usufructo, uso, habitación
-    OBLIGACIONES: obligaciones, contrato, donación, venta, permuta, arrendamiento, alquiler, comodato, mutuo, depósito, prenda, hipoteca, anticresis, fianza, sociedad, mandato, transacción, seguro
-    SUCESIONES: herencia, testamento, sucesión, albacea, legado, legitimaria, heredero
-    PRESCRIPCIÓN: prescripción, plazo, interrupción, caducidad
+    - personas: matrimonio, divorcio, paternidad, filiación, hijos, alimentos, tutela
+    - bienes: propiedad, posesión, servidumbre, usufructo
+    - obligaciones: contratos, arrendamiento, donación, venta, hipoteca, fianza
+    - sucesiones: herencia, testamento
+    - prescripción, daños, perjuicios, accidente, responsabilidad civil
     
-    LEY 4 - CÓDIGO DE COMERCIO: letra cambio, pagaré, cheque, comercio, sociedad mercantil, empresa, sociedad anónima, acto comercio, comerciante
+    LEY 4 - COMERCIO: letra cambio, pagaré, cheque, comercio, sociedad mercantil
     
-    LEY 5 - COPP:
-    DETENCIÓN: detención, flagrancia, arresto, aprehensión, captura, presentación juez, imputado
-    PROCESO: juicio oral, audiencia preliminar, fase preparatoria, investigación, fiscalía, acto conclusivo, acusación, sobreseimiento
-    GARANTÍAS: presunción inocencia, derecho defensa, debido proceso, libertad
-    MEDIDAS: medidas cautelares, privación libertad, libertad provisional, fianza, caución, arresto domiciliario
-    RECURSOS: apelación, casación, revisión
+    LEY 5 - COPP: detención, flagrancia, fianza, medidas cautelares, fiscal, juez
     
-    LEY 6 - CÓDIGO PENAL:
-    DELITOS PROPIEDAD: hurto, robo, estafa, fraude, apropiación indebida, daño a propiedad
-    DELITOS PERSONAS: homicidio, asesinato, lesiones, violencia, agresión
-    DELITOS LIBERTAD: secuestro, extorsión, coacción, amenaza, privación libertad
-    ADMINISTRACIÓN: corrupción, peculado, malversación, concusión, cohecho, prevaricación
-    PENAS: pena, prisión, presidio, arresto, multa, reincidencia, atenuantes, agravantes, eximentes
-    RESPONSABILIDAD: imputabilidad, dolo, culpa, legítima defensa, estado necesidad, tentativa, frustración, prescripción penal
+    LEY 6 - CÓDIGO PENAL: hurto, robo, homicidio, lesiones, estafa, corrupción, peculado, penas
     
-    LEY 7 - CPC:
-    PROCEDIMIENTO ORDINARIO: demanda, emplazamiento, contestación, cuestiones previas, instrucción, lapso probatorio, pruebas, documentos, testigos, experticias, inspección, informes, sentencia, ejecución, embargo, remate, subasta
-    PROCEDIMIENTOS ESPECIALES: procedimiento oral, procedimiento breve, intimación, vía ejecutiva, interdictos, posesión, daño temido, partición, cuentas, jurisdicción voluntaria
-    MEDIDAS: medidas preventivas, embargo, secuestro, prohibición enajenar, perención, recusación
-    RECURSOS: apelación, casación
+    LEY 7 - CPC: demanda, juicio, procedimiento, pruebas, embargo, intimación, interdicto
     
-    LEY 8 - ARRENDAMIENTO VIVIENDA: arrendamiento vivienda, canon, desalojo, contrato arrendamiento, derechos arrendatario
+    LEY 8 - ARRENDAMIENTO VIVIENDA: arrendamiento vivienda, desalojo
     
-    LEY 9 - VIOLENCIA MUJER:
-    VIOLENCIA: violencia mujer, violencia género, violencia doméstica, violencia física, violencia psicológica, violencia sexual, violencia patrimonial, violencia obstétrica, violencia institucional, violencia laboral, violencia política
-    PROTECCIÓN: medidas protección, órdenes protección, casa abrigo, refugio, víctima, denuncia
-    PROCEDIMIENTO: ruta de la justicia, tribunales especializados, control, audiencia, medidas
+    LEY 9 - VIOLENCIA MUJER: violencia mujer, medidas protección
     
-    LEY 10 - ARRENDAMIENTO COMERCIAL: arrendamiento comercial, local comercial, canon comercial
+    LEY 10 - ARRENDAMIENTO COMERCIAL: arrendamiento comercial, local comercial
     
-    LEY 11 - REGISTROS: registro, notaría, registro público, protocolización
+    LEY 11 - REGISTROS: registro, notaría, protocolización
 
     Consulta: "${pregunta}"
     `;
@@ -347,6 +414,15 @@ async function clasificarConsulta(pregunta) {
         console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
         const lower = pregunta.toLowerCase();
         
+        // Ley 1 - CRBV
+        if (lower.includes('constitución') || lower.includes('amparo') || lower.includes('derechos humanos') ||
+            lower.includes('seguridad de la nación') || lower.includes('seguridad nacional') || 
+            lower.includes('defensa nacional') || lower.includes('estado de excepción') ||
+            lower.includes('presidente') || lower.includes('asamblea nacional') ||
+            lower.includes('tribunal supremo') || lower.includes('poder ciudadano') ||
+            lower.includes('consejo moral') || lower.includes('fiscalía') || lower.includes('contraloría') ||
+            lower.includes('defensoría') || lower.includes('cne') || lower.includes('poder electoral')) return { ley_id: 1 };
+        
         // Ley 6 - Código Penal
         if (lower.includes('hurto') || lower.includes('robo') || lower.includes('homicidio') || 
             lower.includes('lesiones') || lower.includes('estafa') || lower.includes('corrupción') ||
@@ -365,7 +441,8 @@ async function clasificarConsulta(pregunta) {
             lower.includes('herencia') || lower.includes('testamento') || lower.includes('sucesion') ||
             lower.includes('contrato') || lower.includes('arrendamiento') || lower.includes('servidumbre') ||
             lower.includes('prescripcion') || lower.includes('daños') || lower.includes('perjuicios') ||
-            lower.includes('propiedad') || lower.includes('posesion') || lower.includes('usucapion')) return { ley_id: 3 };
+            lower.includes('propiedad') || lower.includes('posesion') || lower.includes('usucapion') ||
+            lower.includes('accidente') || lower.includes('choque') || lower.includes('responsabilidad')) return { ley_id: 3 };
         
         // Ley 7 - CPC
         if (lower.includes('demanda') || lower.includes('juicio') || lower.includes('procedimiento') ||
@@ -385,9 +462,6 @@ async function clasificarConsulta(pregunta) {
         // Ley 2 - LPH
         if (lower.includes('propiedad horizontal') || lower.includes('condominio') || lower.includes('vecino')) return { ley_id: 2 };
         
-        // Ley 1 - CRBV
-        if (lower.includes('constitución') || lower.includes('amparo') || lower.includes('derechos humanos')) return { ley_id: 1 };
-        
         // Ley 8 - Arrendamiento Vivienda
         if (lower.includes('arrendamiento vivienda') || lower.includes('desalojo')) return { ley_id: 8 };
         
@@ -398,7 +472,7 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== FORZAR ARTÍCULOS EN CANDIDATOS (CON NORMALIZACIÓN) ==========
+// ========== FORZAR ARTÍCULOS EN CANDIDATOS ==========
 async function forzarArticulosClave(pregunta, candidatos, leyId) {
     const preguntaNormalizada = normalizarTexto(pregunta);
     const articulosForzados = [];
