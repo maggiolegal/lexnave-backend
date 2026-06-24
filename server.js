@@ -158,26 +158,52 @@ async function clasificarConsulta(pregunta) {
     const prompt = `
     Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
     
-    CRITERIOS:
+    === CRITERIOS DE CLASIFICACIÓN ===
+    
+    === CÓDIGO DE PROCEDIMIENTO CIVIL (Ley 7) ===
+    PROCEDIMIENTO ORDINARIO: demanda, emplazamiento, contestación, cuestiones previas, instrucción, lapso probatorio, pruebas, documentos, testigos, experticias, inspección, informes, sentencia, ejecución, embargo, remate, subasta
+    
+    PROCEDIMIENTOS ESPECIALES: procedimiento oral, procedimiento breve, intimación, vía ejecutiva, interdictos, posesión, daño temido, partición, cuentas, jurisdicción voluntaria
+    
+    MEDIDAS: medidas preventivas, embargo, secuestro, prohibición enajenar, perención, recusación
+    
+    RECURSOS: apelación, casación, recursos
     
     === CÓDIGO CIVIL (Ley 3) ===
-    PERSONAS: nacionalidad, domicilio, estado civil, matrimonio, divorcio, separación, filiación, paternidad, maternidad, reconocimiento, impugnación, hijo, adoptación, patria potestad, alimentos, tutela, emancipación, interdicción, inhabilitación, ausencia, registro civil
+    PERSONAS: nacionalidad, domicilio, estado civil, matrimonio, divorcio, filiación, paternidad, hijo, adopción, patria potestad, alimentos, tutela, emancipación, interdicción, ausencia, registro civil
     
-    BIENES Y PROPIEDAD: bienes, muebles, inmuebles, propiedad, posesión, comunidad, copropiedad, accesión, servidumbre, usufructo, uso, habitación
+    BIENES: propiedad, posesión, comunidad, copropiedad, servidumbre, usufructo, uso, habitación
     
-    OBLIGACIONES Y CONTRATOS: obligaciones, contrato, donación, venta, permuta, arrendamiento, alquiler, comodato, mutuo, depósito, prenda, hipoteca, anticresis, fianza, sociedad, mandato, transacción, seguro
+    OBLIGACIONES: contrato, donación, venta, permuta, arrendamiento, comodato, mutuo, depósito, prenda, hipoteca, anticresis, fianza, sociedad, mandato, transacción, seguro
     
-    SUCESIONES: herencia, testamento, sucesión, albacea, legado, legitimaria, heredero
+    SUCESIONES: herencia, testamento, sucesión, albacea, legado, heredero
     
-    === OTRAS LEYES ===
-    CONSTITUCIÓN (Ley 1): constitución, amparo, derechos humanos, estado de excepción
-    PROPIEDAD HORIZONTAL (Ley 2): propiedad horizontal, condominio, vecino, cuotas mantenimiento
-    COMERCIO (Ley 4): letra de cambio, pagaré, cheque, comercio, sociedad mercantil
-    COPP (Ley 5): detención, flagrancia, fiscal, juez, penal
-    CÓDIGO PENAL (Ley 6): hurto, robo, homicidio, lesiones, pena, prisión
-    CPC (Ley 7): procedimiento, juicio, demanda, citación, pruebas, ejecución
-    ARRENDAMIENTO VIVIENDA (Ley 8): arrendamiento vivienda, desalojo
-    VIOLENCIA MUJER (Ley 9): violencia mujer, violencia género
+    === CÓDIGO PENAL (Ley 6) ===
+    DELITOS: homicidio, asesinato, lesiones, hurto, robo, estafa, fraude, apropiación, secuestro, extorsión, amenaza, coacción, violación, abuso sexual
+    ADMINISTRACIÓN: corrupción, peculado, malversación, concusión, cohecho, prevaricación
+    PENAS: pena, prisión, presidio, arresto, multa, reincidencia, atenuantes, agravantes, tentativa, frustración, prescripción penal, indulto
+    RESPONSABILIDAD: imputabilidad, dolo, culpa, legítima defensa, estado necesidad
+    
+    === CÓDIGO ORGÁNICO PROCESAL PENAL (Ley 5) ===
+    DETENCIÓN: detención, flagrancia, arresto, aprehensión, captura, presentación juez, imputado
+    PROCESO: juicio oral, audiencia preliminar, fase preparatoria, investigación, fiscalía, acto conclusivo, acusación, sobreseimiento
+    GARANTÍAS: presunción inocencia, derecho defensa, debido proceso, libertad
+    MEDIDAS: medidas cautelares, privación libertad, libertad provisional, fianza, caución
+    RECURSOS: apelación, casación, revisión
+    
+    === LEY ORGÁNICA SOBRE EL DERECHO DE LAS MUJERES (Ley 9) ===
+    VIOLENCIA: violencia mujer, violencia género, violencia doméstica, violencia física, violencia psicológica, violencia sexual, violencia patrimonial, violencia obstétrica, violencia institucional
+    PROTECCIÓN: medidas protección, órdenes protección, casa abrigo, refugio, víctima
+    PROCEDIMIENTO: denuncia, ruta de la justicia, tribunales especializados, control, audiencia, medidas
+    
+    === CONSTITUCIÓN (Ley 1) ===
+    constitución, amparo, derechos humanos, estado de excepción, derechos fundamentales
+    
+    === PROPIEDAD HORIZONTAL (Ley 2) ===
+    propiedad horizontal, condominio, vecino, cuotas mantenimiento, asamblea copropietarios, administrador
+    
+    === CÓDIGO DE COMERCIO (Ley 4) ===
+    letra cambio, pagaré, cheque, comercio, sociedad mercantil, empresa, sociedad anónima
 
     Consulta: "${pregunta}"
     `;
@@ -197,6 +223,31 @@ async function clasificarConsulta(pregunta) {
     } catch (error) {
         console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
         const lower = pregunta.toLowerCase();
+        
+        // CPC
+        if (lower.includes('demanda') || lower.includes('juicio') || lower.includes('procedimiento') ||
+            lower.includes('pruebas') || lower.includes('testigos') || lower.includes('embargo') ||
+            lower.includes('intimación') || lower.includes('interdicto') || lower.includes('apelación') ||
+            lower.includes('ejecución') || lower.includes('remate') || lower.includes('subasta') ||
+            lower.includes('medidas preventivas') || lower.includes('perención')) return { ley_id: 7 };
+        
+        // Ley Violencia Mujer
+        if (lower.includes('violencia mujer') || lower.includes('violencia género') || 
+            lower.includes('violencia doméstica') || lower.includes('medidas protección') ||
+            lower.includes('víctima') || lower.includes('denuncia violencia')) return { ley_id: 9 };
+        
+        // Código Penal
+        if (lower.includes('hurto') || lower.includes('robo') || lower.includes('homicidio') || 
+            lower.includes('lesiones') || lower.includes('estafa') || lower.includes('corrupción') ||
+            lower.includes('peculado') || lower.includes('pena') || lower.includes('prisión') ||
+            lower.includes('delito') || lower.includes('crimen') || lower.includes('extorsión') ||
+            lower.includes('secuestro')) return { ley_id: 6 };
+        
+        // COPP
+        if (lower.includes('detención') || lower.includes('flagrancia') || lower.includes('fiscal') || 
+            lower.includes('juez') || lower.includes('presentación') || lower.includes('imputado') ||
+            lower.includes('juicio oral') || lower.includes('audiencia preliminar')) return { ley_id: 5 };
+        
         // Código Civil
         if (lower.includes('paternidad') || lower.includes('filiacion') || lower.includes('hijo') || 
             lower.includes('matrimonio') || lower.includes('divorcio') || lower.includes('alimentos') ||
@@ -204,12 +255,17 @@ async function clasificarConsulta(pregunta) {
             lower.includes('contrato') || lower.includes('arrendamiento') || lower.includes('servidumbre') ||
             lower.includes('prescripcion') || lower.includes('daños') || lower.includes('perjuicios') ||
             lower.includes('propiedad') || lower.includes('posesion') || lower.includes('usucapion')) return { ley_id: 3 };
-        if (lower.includes('hurto') || lower.includes('robo') || lower.includes('penal')) return { ley_id: 6 };
-        if (lower.includes('detención') || lower.includes('flagrancia')) return { ley_id: 5 };
-        if (lower.includes('letra') || lower.includes('comercio') || lower.includes('pagare')) return { ley_id: 4 };
+        
+        // Comercio
+        if (lower.includes('letra') || lower.includes('comercio') || lower.includes('pagare') || 
+            lower.includes('cheque') || lower.includes('empresa') || lower.includes('sociedad')) return { ley_id: 4 };
+        
+        // LPH
         if (lower.includes('propiedad horizontal') || lower.includes('condominio') || lower.includes('vecino')) return { ley_id: 2 };
-        if (lower.includes('constitución') || lower.includes('amparo')) return { ley_id: 1 };
-        if (lower.includes('procedimiento') || lower.includes('juicio') || lower.includes('demanda')) return { ley_id: 7 };
+        
+        // CRBV
+        if (lower.includes('constitución') || lower.includes('amparo') || lower.includes('derechos humanos')) return { ley_id: 1 };
+        
         return { ley_id: 3 };
     }
 }
