@@ -1,9 +1,9 @@
 import express from 'express';
 import cors from 'cors';
-import Groq from 'groq-sdk';
 import { createClient } from '@supabase/supabase-js';
 import { WebSocket } from 'ws';
 import { pipeline } from '@xenova/transformers';
+import OpenAI from 'openai';
 
 const app = express();
 app.use(cors());
@@ -16,7 +16,11 @@ const supabase = createClient(
     { realtime: { transport: WebSocket } }
 );
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// ========== DEEPSEEK CONFIGURACIÓN ==========
+const deepseek = new OpenAI({
+    baseURL: 'https://api.deepseek.com',
+    apiKey: process.env.DEEPSEEK_API_KEY,
+});
 
 // ========== MAPEO DE LEYES ==========
 const LEY_MAP = {
@@ -153,7 +157,7 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
     }
 }
 
-// ========== CLASIFICACIÓN INTELIGENTE (SIN KEYWORDS) ==========
+// ========== DEEPSEEK: CLASIFICAR CONSULTA ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
     Eres un experto en derecho venezolano. Lee la pregunta y determina qué ley aplica.
@@ -177,24 +181,23 @@ async function clasificarConsulta(pregunta) {
     `;
 
     try {
-        const response = await groq.chat.completions.create({
+        const response = await deepseek.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
-            model: 'llama-3.1-8b-instant',
+            model: 'deepseek-v4-flash',
             temperature: 0.1,
-            response_format: { type: "json_object" },
             max_tokens: 50
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación (8B): Ley ${result.ley_id}`);
+        console.log(`📋 Clasificación (DeepSeek): Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("⚠️ Clasificación falló, usando fallback por defecto (Código Civil)");
+        console.warn("⚠️ Clasificación falló, usando fallback (Código Civil)");
         return { ley_id: 3 };
     }
 }
 
-// ========== RESPUESTA CON 70B (INTELIGENCIA MÁXIMA) ==========
+// ========== DEEPSEEK: GENERAR RESPUESTA ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
@@ -235,12 +238,12 @@ INSTRUCCIÓN: Responde con la estructura indicada.
 `;
 
     try {
-        const response = await groq.chat.completions.create({
+        const response = await deepseek.chat.completions.create({
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: promptFinal }
             ],
-            model: 'llama-3.3-70b-versatile',
+            model: 'deepseek-v4-flash',
             temperature: 0.2,
             max_tokens: 800
         });
@@ -286,7 +289,7 @@ app.post('/api/consultar', async (req, res) => {
     console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
 
     try {
-        // 1. CLASIFICAR CON 8B (INTELIGENTE)
+        // 1. CLASIFICAR CON DEEPSEEK
         const clasificacion = await clasificarConsulta(pregunta);
         let leyId = clasificacion.ley_id || 3;
 
@@ -311,7 +314,7 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`📚 ${articulosEncontrados.length} artículos encontrados`);
 
-        // 3. GENERAR RESPUESTA CON 70B
+        // 3. GENERAR RESPUESTA CON DEEPSEEK
         let respuesta = await generarRespuestaDirecta(pregunta, articulosEncontrados, leyId);
 
         // 4. VALIDAR CITAS
