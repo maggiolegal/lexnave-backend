@@ -42,7 +42,7 @@ function normalizarTexto(texto) {
         .replace(/[^a-z0-9 ]/g, '');      // Elimina caracteres especiales
 }
 
-// ========== FORZAR ARTÍCULOS POR TEMA (ACTUALIZADO CON TODOS LOS TEMAS DE CRBV) ==========
+// ========== FORZAR ARTÍCULOS POR TEMA ==========
 const FORZAR_ARTICULOS = {
     // ===== Código Penal (Ley 6) =====
     'hurto': ['451', '452', '453'],
@@ -401,7 +401,7 @@ async function clasificarConsulta(pregunta) {
     try {
         const response = await groq.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
-            model: 'llama-3.1-8b-instant',
+            model: 'gpt-oss-20b',
             temperature: 0.1,
             response_format: { type: "json_object" },
             max_tokens: 50
@@ -500,7 +500,7 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     return candidatos;
 }
 
-// ========== RESPUESTA CON 8B ==========
+// ========== RESPUESTA CON GPT-OSS-20B ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
@@ -561,7 +561,7 @@ INSTRUCCIÓN: Responde con la estructura indicada.${instruccionForzada}
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: promptFinal }
             ],
-            model: 'llama-3.1-8b-instant',
+            model: 'gpt-oss-20b',
             temperature: 0.2,
             max_tokens: 800
         });
