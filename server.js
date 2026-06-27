@@ -352,7 +352,7 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     }
 }
 
-// ========== CLASIFICACIÓN CON GPT-OSS-20B ==========
+// ========== CLASIFICACIÓN CON GPT-OSS-120B ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
     Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
@@ -401,14 +401,14 @@ async function clasificarConsulta(pregunta) {
     try {
         const response = await groq.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
-            model: 'gpt-oss-20b',
+            model: 'gpt-oss-120b',
             temperature: 0.1,
             response_format: { type: "json_object" },
             max_tokens: 50
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación (GPT-OSS-20B): Ley ${result.ley_id}`);
+        console.log(`📋 Clasificación (GPT-OSS-120B): Ley ${result.ley_id}`);
         return result;
     } catch (error) {
         console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
@@ -500,7 +500,7 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     return candidatos;
 }
 
-// ========== RESPUESTA CON GPT-OSS-20B ==========
+// ========== RESPUESTA CON GPT-OSS-120B ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
@@ -561,7 +561,7 @@ INSTRUCCIÓN: Responde con la estructura indicada.${instruccionForzada}
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: promptFinal }
             ],
-            model: 'gpt-oss-20b',
+            model: 'gpt-oss-120b',
             temperature: 0.2,
             max_tokens: 800
         });
