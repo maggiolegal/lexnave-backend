@@ -42,59 +42,229 @@ function normalizarTexto(texto) {
         .replace(/[^a-z0-9 ]/g, '');      // Elimina caracteres especiales
 }
 
-// ========== FORZAR ARTÍCULOS POR TEMA ==========
+// ========== FORZAR ARTÍCULOS POR TEMA (COMPLETO) ==========
 const FORZAR_ARTICULOS = {
-    // ===== Código Penal (Ley 6) =====
+    // ===== Código Penal (Ley 6) - COMPLETO =====
     'hurto': ['451', '452', '453'],
+    'hurto agravado': ['452', '453'],
     'robo': ['455', '456', '457'],
+    'robo agravado': ['456', '457'],
     'homicidio': ['405', '406', '409'],
+    'homicidio calificado': ['406'],
+    'homicidio culposo': ['409'],
     'lesiones': ['413', '414', '415'],
+    'lesiones graves': ['414'],
+    'lesiones culposas': ['415'],
     'estafa': ['461', '462'],
+    'fraude': ['461', '462'],
+    'apropiacion indebida': ['465', '466'],
     'corrupcion': ['60', '61', '62'],
     'peculado': ['63', '64'],
+    'malversacion': ['63', '64'],
+    'concusion': ['65', '66'],
     'cohecho': ['67', '68'],
+    'prevaricacion': ['70', '71'],
     'secuestro': ['460'],
     'extorsion': ['460'],
+    'amenaza': ['460'],
+    'coaccion': ['460'],
+    'privacion libertad': ['460'],
+    'violacion': ['374', '375'],
+    'abuso sexual': ['375', '376'],
+    'acoso sexual': ['375', '376'],
+    'falsificacion': ['450'],
+    'falsedad': ['450'],
+    'perjurio': ['450'],
+    'falso testimonio': ['450'],
+    'contrabando': ['460'],
+    'trafico drogas': ['460'],
+    'legitimacion capitales': ['460'],
+    'lavado dinero': ['460'],
+    'pena': ['451', '455', '405', '406'],
+    'prision': ['451', '455', '405', '406'],
+    'presidio': ['451', '455', '405', '406'],
+    'arresto': ['451', '455', '405', '406'],
+    'multa': ['451', '455', '405', '406'],
+    'reincidencia': ['26'],
+    'atenuantes': ['27', '28', '29'],
+    'agravantes': ['30', '31'],
+    'eximentes': ['27', '28', '29'],
+    'dolo': ['27', '28', '29'],
+    'culpa': ['27', '28', '29'],
+    'legitima defensa': ['27', '28', '29'],
+    'estado necesidad': ['27', '28', '29'],
+    'tentativa': ['27', '28', '29'],
+    'frustracion': ['27', '28', '29'],
+    'prescripcion penal': ['26'],
     
-    // ===== Código Civil (Ley 3) =====
+    // ===== Código Civil (Ley 3) - COMPLETO =====
     'prescripcion': ['1969', '1950', '1951', '1952'],
     'plazo': ['1969'],
+    'interrupcion prescripcion': ['1969'],
     'divorcio': ['185', '186', '187'],
+    'separacion': ['185', '186', '187'],
+    'causales divorcio': ['185', '186', '187'],
     'matrimonio': ['82', '83', '84', '85', '86', '87', '88'],
+    'requisitos matrimonio': ['82', '83', '84', '85', '86', '87', '88'],
+    'capitulaciones': ['82', '83', '84', '85', '86', '87', '88'],
     'paternidad': ['210', '211', '212', '215'],
     'filiacion': ['210', '211', '212'],
+    'hijo': ['210', '211', '212', '215'],
+    'adopcion': ['210', '211', '212'],
+    'patria potestad': ['262', '263', '264'],
     'alimentos': ['282', '283', '284'],
+    'obligacion alimentos': ['282', '283', '284'],
+    'tutela': ['262', '263', '264'],
+    'emancipacion': ['262', '263', '264'],
+    'interdiccion': ['262', '263', '264'],
+    'inhabilitacion': ['262', '263', '264'],
+    'ausencia': ['262', '263', '264'],
+    'registro civil': ['262', '263', '264'],
     'herencia': ['991', '992', '993', '994'],
     'testamento': ['991', '992', '993', '994'],
+    'sucesion': ['991', '992', '993', '994'],
+    'albacea': ['971', '972', '973'],
+    'legitima': ['994', '995', '996'],
+    'herederos': ['991', '992', '993', '994'],
     'servidumbre': ['571', '572', '573', '574', '575', '576', '577'],
+    'servidumbre luces': ['571', '572', '573', '574'],
+    'servidumbre vistas': ['571', '572', '573', '574'],
     'luz natural': ['571', '572', '573', '574'],
     'muro': ['571', '572', '573'],
+    'pared medianera': ['571', '572'],
+    'distancia construccion': ['571', '572', '573'],
     'contrato': ['1137', '1140', '1145'],
+    'obligaciones': ['1137', '1138', '1139'],
+    'cumplimiento contrato': ['1137', '1138', '1139'],
+    'incumplimiento': ['1137', '1138', '1139'],
+    'pago': ['1300', '1301', '1302'],
     'arrendamiento': ['1576', '1577', '1578'],
+    'alquiler': ['1576', '1577', '1578'],
+    'arrendatario': ['1576', '1577', '1578'],
+    'arrendador': ['1576', '1577', '1578'],
+    'canon arrendamiento': ['1576', '1577', '1578'],
+    'donacion': ['1004', '1005', '1006'],
+    'venta': ['1137', '1140', '1145'],
+    'compraventa': ['1137', '1140', '1145'],
+    'permuta': ['1137', '1140', '1145'],
+    'hipoteca': ['1137', '1140', '1145'],
+    'fianza': ['1137', '1140', '1145'],
+    'sociedad': ['1137', '1140', '1145'],
+    'mandato': ['1137', '1140', '1145'],
+    'transaccion': ['1137', '1140', '1145'],
     'accidente': ['1185', '1190', '1810'],
     'choque': ['1185', '1190', '1810'],
     'daños': ['1185', '1190', '1810', '1969'],
     'perjuicios': ['1185', '1190', '1810', '1969'],
     'responsabilidad': ['1185', '1190'],
     'daño': ['1185', '1190', '1810'],
+    'responsabilidad civil': ['1185', '1190'],
+    'responsabilidad extracontractual': ['1185', '1190'],
+    'propiedad': ['545', '546', '547'],
+    'posesion': ['771', '772', '773'],
+    'usucapion': ['1977', '1978'],
+    'accesion': ['571', '572', '573'],
+    'dominio': ['545', '546', '547'],
+    'bienes muebles': ['545', '546', '547'],
+    'bienes inmuebles': ['545', '546', '547'],
+    'comodato': ['1137', '1140', '1145'],
+    'mutuo': ['1137', '1140', '1145'],
+    'deposito': ['1137', '1140', '1145'],
+    'prenda': ['1137', '1140', '1145'],
+    'anticresis': ['1137', '1140', '1145'],
+    'vias de hecho': ['548'],
     
-    // ===== COPP (Ley 5) =====
+    // ===== CPC - PROCEDIMIENTO ORDINARIO (COMPLETO) =====
+    'procedimiento ordinario': ['340', '341', '342', '344', '345', '346', '347', '348', '395', '396', '397', '398', '399', '400', '511', '243', '244', '245'],
+    'juicio ordinario': ['340', '341', '342', '344', '345', '346', '347', '348', '395', '396', '397', '398', '399', '400', '511', '243', '244', '245'],
+    'ordinario': ['340', '341', '342', '344', '345', '346', '347', '348', '395', '396', '397', '398', '399', '400', '511', '243', '244', '245'],
+    'demanda': ['340'],
+    'requisitos demanda': ['340'],
+    'libelo': ['340'],
+    'admisión': ['341', '342'],
+    'emplazamiento': ['218', '219', '220', '221', '222'],
+    'citacion': ['218', '219', '220', '221', '222'],
+    'contestacion': ['344', '345', '346'],
+    'cuestiones previas': ['346', '347', '348'],
+    'pruebas': ['395', '396', '397', '398', '399', '400'],
+    'lapso probatorio': ['395', '396', '397'],
+    'testigos': ['478', '479', '480', '481', '482', '483'],
+    'experticia': ['451', '452', '453'],
+    'inspeccion': ['454', '455'],
+    'informes': ['511'],
+    'sentencia': ['243', '244', '245'],
+    'ejecucion sentencia': ['523', '524', '525', '526'],
+    'ejecucion': ['523', '524', '525', '526'],
+    'embargo': ['585', '586', '587'],
+    'remate': ['530', '531', '532'],
+    'subasta': ['530', '531', '532'],
+    'apelacion': ['288', '289', '290', '291'],
+    'recurso': ['288', '289', '290', '291', '312', '313'],
+    'casacion': ['312', '313'],
+    
+    // ===== CPC - PROCEDIMIENTO ORAL =====
+    'procedimiento oral': ['859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869'],
+    'oral': ['859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869'],
+    'lapsos': ['859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869'],
+    
+    // ===== CPC - PROCEDIMIENTO BREVE =====
+    'procedimiento breve': ['881', '882', '883', '884', '885', '886', '887', '888', '889', '890', '891', '892', '893', '894'],
+    'breve': ['881', '882', '883', '884', '885', '886', '887', '888', '889', '890', '891', '892', '893', '894'],
+    
+    // ===== CPC - INTIMACIÓN =====
+    'intimacion': ['640', '641', '642', '643', '644', '645', '646', '647', '648', '649', '650', '651', '652'],
+    'cobro': ['640', '641', '642'],
+    
+    // ===== CPC - INTERDICTOS =====
+    'interdicto': ['782', '783', '784', '785', '786', '787', '788', '789', '790'],
+    'posesion': ['782', '783', '784', '785'],
+    'daño temido': ['786', '787', '788'],
+    
+    // ===== CPC - MEDIDAS PREVENTIVAS =====
+    'medidas preventivas': ['585', '586', '587', '588', '589', '590'],
+    'medidas cautelares': ['585', '586', '587', '588', '589', '590'],
+    'secuestro': ['585', '586', '587'],
+    
+    // ===== CPC - VÍA EJECUTIVA =====
+    'via ejecutiva': ['630', '631', '632', '633', '634', '635', '636', '637', '638', '639'],
+    'ejecutivo': ['630', '631', '632', '633', '634', '635', '636', '637', '638', '639'],
+    'ejecucion forzosa': ['523', '524', '525', '526'],
+    
+    // ===== COPP =====
     'flagrancia': ['373'],
     'detencion': ['373', '374', '375'],
     'fianza': ['244', '245'],
     'medidas cautelares': ['236', '237', '238'],
+    'privacion libertad': ['236', '237', '238'],
+    'libertad provisional': ['242', '243', '244'],
+    'arresto domiciliario': ['236', '237', '238'],
+    'presentacion juez': ['373'],
+    'aprehension': ['373', '374'],
+    'plazo detencion': ['373'],
     'acto conclusivo': ['295'],
     'apelacion': ['438', '439'],
+    'recurso': ['438', '439', '440', '441', '442', '443'],
+    'casacion': ['443', '444', '445'],
+    'juicio oral': ['332', '333', '334', '335', '336', '337', '338'],
+    'audiencia preliminar': ['309', '310', '311', '312'],
+    'fase preparatoria': ['295'],
+    'investigacion': ['295', '296', '297', '298'],
+    'imputacion': ['295'],
+    'fiscalia': ['295', '373'],
+    'derecho defensa': ['8', '9', '10'],
+    'presuncion inocencia': ['8'],
+    'debido proceso penal': ['8', '9'],
+    'derecho silencio': ['8', '9', '10'],
+    'procedimiento abreviado': ['372', '373'],
+    'procedimiento ordinario penal': ['373'],
+    'homicidio': ['405', '406'],
+    'violacion': ['374', '375'],
+    'secuestro': ['374', '375'],
+    'robo': ['374', '375'],
+    'hurto': ['374', '375'],
+    'lesiones': ['374', '375'],
     
-    // ===== CPC (Ley 7) =====
-    'intimacion': ['640', '641', '642'],
-    'interdicto': ['782', '783', '784', '785'],
-    'embargo': ['585', '586', '587'],
-    'demanda': ['340'],
-    'apelacion': ['340', '341'],
-    'ejecucion': ['650', '651', '652'],
-    
-    // ===== CRBV - BLOQUE DE GARANTÍAS (Título III) =====
+    // ===== CRBV =====
     'derechos humanos': ['19', '20', '21', '22', '23'],
     'derecho a la vida': ['43'],
     'derecho a la libertad': ['44', '45', '46'],
@@ -128,8 +298,6 @@ const FORZAR_ARTICULOS = {
     'derecho de los adultos mayores': ['80'],
     'derecho de las personas con discapacidad': ['81'],
     'derecho a la mujer': ['88', '89'],
-    
-    // ===== CRBV - BLOQUE DE ESTRUCTURA ESTATAL (Títulos IV, V, VI) =====
     'poder legislativo': ['186', '187', '188', '189', '190', '191', '192', '193', '194', '195'],
     'asamblea nacional': ['186', '187', '188', '189', '190', '191', '192', '193', '194', '195'],
     'poder ejecutivo': ['226', '227', '228', '229', '230', '231', '232', '233', '234', '235', '236'],
@@ -149,8 +317,6 @@ const FORZAR_ARTICULOS = {
     'consejo legislativo': ['162', '163'],
     'sistema socioeconomico': ['299', '300', '301', '302', '303', '304', '305', '306', '307', '308'],
     'banco central de venezuela': ['318', '319', '320', '321'],
-    
-    // ===== CRBV - BLOQUE DE SEGURIDAD Y DEFENSA (Título VII) =====
     'seguridad de la nacion': ['322', '323', '324', '325', '326', '327', '328', '329', '330', '331', '332', '333', '334', '335', '336'],
     'seguridad nacional': ['322', '323', '324', '325', '326', '327', '328', '329', '330', '331', '332', '333', '334', '335', '336'],
     'defensa nacional': ['322', '323', '324', '325', '326', '327', '328', '329', '330', '331', '332', '333', '334', '335', '336'],
@@ -158,8 +324,6 @@ const FORZAR_ARTICULOS = {
     'estados de excepcion': ['337', '338', '339', '340'],
     'fuerzas armadas': ['328', '329', '330', '331', '332', '333', '334', '335', '336'],
     'seguridad ciudadana': ['55', '56'],
-    
-    // ===== CRBV - BLOQUE DE CONTROL CONSTITUCIONAL (Título VIII) =====
     'control constitucional': ['334', '335', '336'],
     'inconstitucionalidad': ['334', '335', '336'],
     'reforma constitucional': ['341', '342', '343', '344', '345', '346', '347', '348', '349', '350'],
@@ -168,16 +332,91 @@ const FORZAR_ARTICULOS = {
     
     // ===== Ley Violencia Mujer (Ley 9) =====
     'violencia mujer': ['1', '2', '3', '4', '5'],
+    'violencia genero': ['1', '2', '3', '4', '5'],
+    'violencia domestica': ['1', '2', '3', '4', '5'],
+    'violencia intrafamiliar': ['1', '2', '3', '4', '5'],
     'medidas proteccion': ['1', '2', '3'],
+    'violencia psicologica': ['1', '2', '3'],
+    'violencia fisica': ['1', '2', '3'],
+    'violencia sexual': ['1', '2', '3'],
+    'violencia patrimonial': ['1', '2', '3'],
+    'violencia simbolica': ['1', '2', '3'],
+    'violencia laboral': ['1', '2', '3'],
+    'violencia politica': ['1', '2', '3'],
+    'violencia obstetrica': ['1', '2', '3'],
+    'violencia institucional': ['1', '2', '3'],
+    'acoso sexual': ['1', '2', '3'],
+    'acoso laboral': ['1', '2', '3'],
+    'denuncia violencia': ['1', '2', '3'],
+    'orden de proteccion': ['1', '2', '3'],
+    'casa de abrigo': ['1', '2', '3'],
+    'refugio': ['1', '2', '3'],
+    'victima': ['1', '2', '3'],
+    'victimizacion': ['1', '2', '3'],
+    'tribunales especializados': ['1', '2', '3'],
+    'ruta de la justicia': ['1', '2', '3'],
     
     // ===== LPH (Ley 2) =====
     'propiedad horizontal': ['5', '7', '8', '9', '14'],
+    'condominio': ['5', '7', '8', '9', '14'],
+    'vecino': ['5', '7', '8', '9', '14'],
     'cuotas mantenimiento': ['14', '7', '5'],
+    'administrador': ['18', '19', '20', '21'],
+    'junta condominio': ['18', '19'],
+    'asamblea copropietarios': ['18', '19', '22', '23', '24'],
+    'cosas comunes': ['5', '8', '11'],
+    'gastos comunes': ['11', '12', '13', '14'],
+    'documento condominio': ['26', '27', '28', '29'],
+    'reparaciones': ['22', '23', '24'],
+    'sanciones': ['39', '40', '41', '42', '43', '44', '45', '46', '47'],
+    'ruido': ['3', '8'],
+    'molestias': ['3', '8'],
+    'animales': ['3', '8'],
     
     // ===== Código de Comercio (Ley 4) =====
     'letra cambio': ['410'],
     'pagare': ['410'],
-    'cheque': ['410']
+    'cheque': ['410'],
+    'endoso': ['410', '411', '412'],
+    'aval': ['410', '411', '412'],
+    'protesto': ['413', '414'],
+    'vencimiento': ['413', '414'],
+    'aceptacion': ['411', '412'],
+    'sociedad mercantil': ['200', '201', '202'],
+    'sociedad anonima': ['200', '201', '202'],
+    'sociedad responsabilidad limitada': ['200', '201', '202'],
+    'empresa': ['2', '5', '10'],
+    'comerciante': ['2', '5', '10'],
+    'acto comercio': ['2', '5', '10'],
+    'compraventa mercantil': ['2', '5', '10'],
+    'seguro': ['2', '5', '10'],
+    'cuenta corriente': ['2', '5', '10'],
+    
+    // ===== Arrendamiento Vivienda (Ley 8) =====
+    'arrendamiento vivienda': ['1', '2', '3', '4', '5'],
+    'desalojo': ['20', '21', '22'],
+    'canon': ['1', '2', '3'],
+    'contrato arrendamiento': ['1', '2', '3'],
+    'derechos arrendatario': ['1', '2', '3'],
+    'obligaciones arrendador': ['1', '2', '3'],
+    'prorroga': ['1', '2', '3'],
+    'renovacion': ['1', '2', '3'],
+    'rescision': ['1', '2', '3'],
+    
+    // ===== Arrendamiento Comercial (Ley 10) =====
+    'arrendamiento comercial': ['1', '2', '3'],
+    'local comercial': ['1', '2', '3'],
+    'canon comercial': ['1', '2', '3'],
+    
+    // ===== Registros (Ley 11) =====
+    'registro': ['1', '2', '3'],
+    'notaría': ['1', '2', '3'],
+    'protocolizacion': ['1', '2', '3'],
+    'registro publico': ['1', '2', '3'],
+    'registro mercantil': ['1', '2', '3'],
+    'registro civil': ['1', '2', '3'],
+    'registro propiedad': ['1', '2', '3'],
+    'registro hipoteca': ['1', '2', '3']
 };
 
 // ========== MODELO DE EMBEDDING LOCAL ==========
@@ -303,48 +542,24 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 50) {
 // ========== BUSCAR ARTÍCULO POR NÚMERO ==========
 async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     try {
-        // Intentar 1: búsqueda por textSearch en contenido
         const { data, error } = await supabase
-            .from('articulos')
-            .select('id, numero_articulo, contenido, ley_id')
-            .eq('ley_id', parseInt(leyId))
-            .textSearch('contenido', `Artículo ${numeroArticulo}`)
-            .limit(1);
-        
-        if (data && data.length > 0 && !error) {
-            const art = data[0];
-            console.log(`✅ Artículo ${numeroArticulo} encontrado por textSearch: "${art.numero_articulo}"`);
-            return {
-                id: art.id,
-                numero_articulo: art.numero_articulo,
-                contenido: art.contenido,
-                ley_id: art.ley_id,
-                ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
-                similitud: 0.99
-            };
-        }
-        
-        // Intentar 2: búsqueda por ilike en numero_articulo
-        const { data: dataIlike, error: errorIlike } = await supabase
             .from('articulos')
             .select('id, numero_articulo, contenido, ley_id')
             .eq('ley_id', parseInt(leyId))
             .ilike('numero_articulo', `%${numeroArticulo}%`)
             .maybeSingle();
         
-        if (dataIlike && !errorIlike) {
-            console.log(`✅ Artículo ${numeroArticulo} encontrado por ilike: "${dataIlike.numero_articulo}"`);
+        if (data && !error) {
+            console.log(`✅ Artículo ${numeroArticulo} encontrado: "${data.numero_articulo}"`);
             return {
-                id: dataIlike.id,
-                numero_articulo: dataIlike.numero_articulo,
-                contenido: dataIlike.contenido,
-                ley_id: dataIlike.ley_id,
-                ley_nombre: LEY_MAP[dataIlike.ley_id] || 'Ley',
+                id: data.id,
+                numero_articulo: data.numero_articulo,
+                contenido: data.contenido,
+                ley_id: data.ley_id,
+                ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
                 similitud: 0.99
             };
         }
-        
-        console.log(`❌ Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
         return null;
     } catch (e) {
         console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
@@ -352,50 +567,44 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     }
 }
 
-// ========== CLASIFICACIÓN CON LLAMA-3.3-70B ==========
+// ========== CLASIFICACIÓN CON 70B (MEJORADA PARA LENGUAJE COLOQUIAL) ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
-    Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
-    
-    === CRITERIOS COMPLETOS ===
-    
-    LEY 1 - CONSTITUCIÓN:
-    - derechos humanos, garantías, debido proceso, libertad, igualdad
-    - amparo, habeas corpus, propiedad
-    - salud, educación, vivienda, trabajo, seguridad social
-    - pueblos indígenas, ambiente
-    - asamblea nacional, presidente, vicepresidente, ministros
-    - tribunal supremo de justicia, poder ciudadano, fiscalía, contraloría, defensoría
-    - poder electoral, CNE, gobernador, consejo legislativo
-    - seguridad de la nación, defensa nacional, estado de excepción, fuerzas armadas
-    - control constitucional, inconstitucionalidad, reforma constitucional, enmienda
-    
-    LEY 2 - LPH: propiedad horizontal, condominio, vecino, cuotas mantenimiento
-    
-    LEY 3 - CÓDIGO CIVIL:
-    - personas: matrimonio, divorcio, paternidad, filiación, hijos, alimentos, tutela
-    - bienes: propiedad, posesión, servidumbre, usufructo
-    - obligaciones: contratos, arrendamiento, donación, venta, hipoteca, fianza
-    - sucesiones: herencia, testamento
-    - prescripción, daños, perjuicios, accidente, responsabilidad civil
-    
-    LEY 4 - COMERCIO: letra cambio, pagaré, cheque, comercio, sociedad mercantil
-    
-    LEY 5 - COPP: detención, flagrancia, fianza, medidas cautelares, fiscal, juez
-    
-    LEY 6 - CÓDIGO PENAL: hurto, robo, homicidio, lesiones, estafa, corrupción, peculado, penas
-    
-    LEY 7 - CPC: demanda, juicio, procedimiento, pruebas, embargo, intimación, interdicto
-    
-    LEY 8 - ARRENDAMIENTO VIVIENDA: arrendamiento vivienda, desalojo
-    
-    LEY 9 - VIOLENCIA MUJER: violencia mujer, medidas protección
-    
-    LEY 10 - ARRENDAMIENTO COMERCIAL: arrendamiento comercial, local comercial
-    
-    LEY 11 - REGISTROS: registro, notaría, protocolización
+    Eres un experto en derecho venezolano. Lee la pregunta y determina qué ley aplica.
 
-    Consulta: "${pregunta}"
+    REGLAS DE CLASIFICACIÓN POR TEMA (NO por nombre de ley):
+
+    1. Si pregunta sobre DIVORCIO, SEPARACIÓN, MATRIMONIO, PATERNIDAD, FILIACIÓN, HIJOS, ADOPCIÓN, ALIMENTOS, HERENCIA, TESTAMENTO, SUCESIÓN, CONTRATO, ARRENDAMIENTO, ALQUILER, SERVIDUMBRE, PROPIEDAD, POSESIÓN, PRESCRIPCIÓN, DAÑOS, PERJUICIOS, RESPONSABILIDAD CIVIL, ACCIDENTE, CHOQUE → Código Civil (Ley 3)
+
+    2. Si pregunta sobre HURTO, ROBO, HOMICIDIO, LESIONES, ESTAFA, CORRUPCIÓN, SECUESTRO, EXTORSIÓN, PENA, PRISIÓN, DELITO, CRIMEN → Código Penal (Ley 6)
+
+    3. Si pregunta sobre DETENCIÓN, FLAGRANCIA, ARRESTO, APREHENSIÓN, PRESENTACIÓN ANTE JUEZ, FIANZA, MEDIDAS CAUTELARES, PRIVACIÓN DE LIBERTAD, JUICIO ORAL, AUDIENCIA PRELIMINAR, FISCAL, IMPUTADO → COPP (Ley 5)
+
+    4. Si pregunta sobre DEMANDA, JUICIO, PROCEDIMIENTO, PRUEBAS, EMBARGO, INTIMACIÓN, INTERDICTO, APELACIÓN, SENTENCIA, EJECUCIÓN, PROCESO → CPC (Ley 7)
+
+    5. Si pregunta sobre PROPIEDAD HORIZONTAL, CONDOMINIO, VECINO, CUOTAS DE MANTENIMIENTO, ADMINISTRADOR, EDIFICIO → LPH (Ley 2)
+
+    6. Si pregunta sobre CONSTITUCIÓN, AMPARO, HÁBEAS CORPUS, DERECHOS HUMANOS, SEGURIDAD DE LA NACIÓN, ESTADO DE EXCEPCIÓN, DERECHO A LA SALUD, EDUCACIÓN, TRABAJO → CRBV (Ley 1)
+
+    7. Si pregunta sobre LETRA DE CAMBIO, PAGARÉ, CHEQUE, COMERCIO, SOCIEDAD MERCANTIL, EMPRESA → Código de Comercio (Ley 4)
+
+    8. Si pregunta sobre VIOLENCIA, MALTRATO, MUJER, VIOLENCIA DOMÉSTICA, ACOSO → Ley 9
+
+    9. Si pregunta sobre ARRENDAMIENTO DE VIVIENDA, DESALOJO, CANON → Ley 8
+
+    10. Si pregunta sobre REGISTRO, NOTARÍA, PROTOCOLIZACIÓN → Ley 11
+
+    EJEMPLOS:
+    - "Quiero divorciarme" → Ley 3
+    - "Me robaron" → Ley 6
+    - "Me detuvieron" → Ley 5
+    - "Mi vecino" → Ley 2 o Ley 3
+    - "Cómo demandar" → Ley 7
+    - "No pagan mantenimiento" → Ley 2
+
+    Pregunta: "${pregunta}"
+
+    Responde SOLO con JSON: {"ley_id": número}
     `;
 
     try {
@@ -408,66 +617,38 @@ async function clasificarConsulta(pregunta) {
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación (70B): Ley ${result.ley_id}`);
+        console.log(`📋 Clasificación: Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
+        console.warn("⚠️ Clasificación falló, usando fallback...");
         const lower = pregunta.toLowerCase();
-        
-        // Ley 1 - CRBV
-        if (lower.includes('constitución') || lower.includes('amparo') || lower.includes('derechos humanos') ||
-            lower.includes('seguridad de la nación') || lower.includes('seguridad nacional') || 
-            lower.includes('defensa nacional') || lower.includes('estado de excepción') ||
-            lower.includes('presidente') || lower.includes('asamblea nacional') ||
-            lower.includes('tribunal supremo') || lower.includes('poder ciudadano') ||
-            lower.includes('consejo moral') || lower.includes('fiscalía') || lower.includes('contraloría') ||
-            lower.includes('defensoría') || lower.includes('cne') || lower.includes('poder electoral')) return { ley_id: 1 };
-        
-        // Ley 6 - Código Penal
-        if (lower.includes('hurto') || lower.includes('robo') || lower.includes('homicidio') || 
-            lower.includes('lesiones') || lower.includes('estafa') || lower.includes('corrupción') ||
-            lower.includes('peculado') || lower.includes('pena') || lower.includes('prisión') ||
-            lower.includes('delito') || lower.includes('crimen') || lower.includes('extorsión') ||
-            lower.includes('secuestro')) return { ley_id: 6 };
-        
-        // Ley 5 - COPP
+        if (lower.includes('divorcio') || lower.includes('matrimonio') || lower.includes('hijo') || 
+            lower.includes('herencia') || lower.includes('contrato') || lower.includes('accidente') ||
+            lower.includes('daños') || lower.includes('perjuicios') || lower.includes('prescripcion') ||
+            lower.includes('servidumbre') || lower.includes('muro') || lower.includes('luz natural') ||
+            lower.includes('propiedad') || lower.includes('posesion') || lower.includes('alquiler') ||
+            lower.includes('arrendamiento')) return { ley_id: 3 };
+        if (lower.includes('hurto') || lower.includes('robo') || lower.includes('delito') || 
+            lower.includes('pena') || lower.includes('homicidio') || lower.includes('lesiones') ||
+            lower.includes('estafa') || lower.includes('corrupcion') || lower.includes('crimen')) return { ley_id: 6 };
         if (lower.includes('detención') || lower.includes('flagrancia') || lower.includes('fiscal') || 
-            lower.includes('juez') || lower.includes('presentación') || lower.includes('imputado') ||
-            lower.includes('juicio oral') || lower.includes('audiencia preliminar')) return { ley_id: 5 };
-        
-        // Ley 3 - Código Civil
-        if (lower.includes('paternidad') || lower.includes('filiacion') || lower.includes('hijo') || 
-            lower.includes('matrimonio') || lower.includes('divorcio') || lower.includes('alimentos') ||
-            lower.includes('herencia') || lower.includes('testamento') || lower.includes('sucesion') ||
-            lower.includes('contrato') || lower.includes('arrendamiento') || lower.includes('servidumbre') ||
-            lower.includes('prescripcion') || lower.includes('daños') || lower.includes('perjuicios') ||
-            lower.includes('propiedad') || lower.includes('posesion') || lower.includes('usucapion') ||
-            lower.includes('accidente') || lower.includes('choque') || lower.includes('responsabilidad')) return { ley_id: 3 };
-        
-        // Ley 7 - CPC
+            lower.includes('juez') || lower.includes('aprehension') || lower.includes('imputado') ||
+            lower.includes('audiencia preliminar') || lower.includes('juicio oral') || 
+            lower.includes('arresto')) return { ley_id: 5 };
         if (lower.includes('demanda') || lower.includes('juicio') || lower.includes('procedimiento') ||
-            lower.includes('pruebas') || lower.includes('testigos') || lower.includes('embargo') ||
-            lower.includes('intimación') || lower.includes('interdicto') || lower.includes('apelación') ||
-            lower.includes('ejecución') || lower.includes('remate') || lower.includes('subasta')) return { ley_id: 7 };
-        
-        // Ley 9 - Violencia Mujer
-        if (lower.includes('violencia mujer') || lower.includes('violencia género') || 
-            lower.includes('violencia doméstica') || lower.includes('medidas protección') ||
-            lower.includes('víctima') || lower.includes('denuncia violencia')) return { ley_id: 9 };
-        
-        // Ley 4 - Comercio
-        if (lower.includes('letra') || lower.includes('comercio') || lower.includes('pagare') || 
-            lower.includes('cheque') || lower.includes('empresa') || lower.includes('sociedad')) return { ley_id: 4 };
-        
-        // Ley 2 - LPH
-        if (lower.includes('propiedad horizontal') || lower.includes('condominio') || lower.includes('vecino')) return { ley_id: 2 };
-        
-        // Ley 8 - Arrendamiento Vivienda
-        if (lower.includes('arrendamiento vivienda') || lower.includes('desalojo')) return { ley_id: 8 };
-        
-        // Ley 11 - Registros
+            lower.includes('pruebas') || lower.includes('embargo') || lower.includes('intimación') ||
+            lower.includes('interdicto') || lower.includes('apelación') || lower.includes('sentencia') ||
+            lower.includes('proceso')) return { ley_id: 7 };
+        if (lower.includes('condominio') || lower.includes('propiedad horizontal') || lower.includes('vecino') ||
+            lower.includes('cuotas') || lower.includes('mantenimiento') || lower.includes('edificio')) return { ley_id: 2 };
+        if (lower.includes('constitución') || lower.includes('amparo') || lower.includes('derechos') ||
+            lower.includes('seguridad de la nación') || lower.includes('estado de excepción')) return { ley_id: 1 };
+        if (lower.includes('letra') || lower.includes('cheque') || lower.includes('comercio') ||
+            lower.includes('pagare') || lower.includes('empresa') || lower.includes('sociedad')) return { ley_id: 4 };
+        if (lower.includes('violencia') || lower.includes('maltrato') || lower.includes('mujer') ||
+            lower.includes('acoso') || lower.includes('doméstica')) return { ley_id: 9 };
+        if (lower.includes('desalojo') || lower.includes('arrendamiento vivienda') || lower.includes('canon')) return { ley_id: 8 };
         if (lower.includes('registro') || lower.includes('notaría') || lower.includes('protocolización')) return { ley_id: 11 };
-        
         return { ley_id: 3 };
     }
 }
@@ -500,7 +681,7 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     return candidatos;
 }
 
-// ========== RESPUESTA CON LLAMA-3.3-70B ==========
+// ========== RESPUESTA CON 70B ==========
 async function generarRespuestaDirecta(pregunta, candidatos, leyId) {
     const leyNombre = LEY_MAP[leyId] || 'Ley';
     
