@@ -352,7 +352,7 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     }
 }
 
-// ========== CLASIFICACIÓN CON 8B ==========
+// ========== CLASIFICACIÓN CON GPT-OSS-20B ==========
 async function clasificarConsulta(pregunta) {
     const prompt = `
     Clasifica la consulta legal. Responde SOLO con JSON: {"ley_id": número}
@@ -408,7 +408,7 @@ async function clasificarConsulta(pregunta) {
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación (8B): Ley ${result.ley_id}`);
+        console.log(`📋 Clasificación (GPT-OSS-20B): Ley ${result.ley_id}`);
         return result;
     } catch (error) {
         console.warn("⚠️ Clasificación falló, usando fallback por keywords...");
