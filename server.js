@@ -42,7 +42,7 @@ function normalizarTexto(texto) {
         .replace(/[^a-z0-9 ]/g, '');
 }
 
-// ========== ARTÍCULOS CLAVE POR TEMA ==========
+// ========== ARTÍCULOS CLAVE POR TEMA (CON SINÓNIMOS) ==========
 const FORZAR_ARTICULOS = {
     'hurto': ['451', '452', '453'], 'robo': ['455', '456', '457'], 
     'homicidio': ['405', '406', '409'], 'lesiones': ['413', '414', '415'], 
@@ -129,7 +129,9 @@ const FORZAR_ARTICULOS = {
     'documento condominio': ['26', '27', '28', '29'],
     'sanciones': ['39', '40', '41', '42', '43', '44', '45', '46', '47'],
     'ruido': ['3', '8'], 'molestias': ['3', '8'],
-    'letra cambio': ['410'], 'pagare': ['410'], 'cheque': ['410'],
+    // SINÓNIMOS AGREGADOS PARA LETRA DE CAMBIO
+    'letra cambio': ['410'], 'letra de cambio': ['410'], 'letras de cambio': ['410'],
+    'requisitos letra': ['410'], 'pagare': ['410'], 'cheque': ['410'],
     'endoso': ['410', '411', '412'], 'aval': ['410', '411', '412'],
     'protesto': ['413', '414'], 'sociedad mercantil': ['200', '201', '202'],
     'sociedad anonima': ['200', '201', '202'], 'empresa': ['2', '5', '10'],
@@ -207,11 +209,11 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
         });
         
         if (error) {
-            console.error('❌ Error en búsqueda vectorial:', error);
+            console.error(' Error en búsqueda vectorial:', error);
             return buscarPorTexto(pregunta, leyId, limite);
         }
         
-        console.log(` Búsqueda vectorial: ${data?.length || 0} resultados`);
+        console.log(`🔍 Búsqueda vectorial: ${data?.length || 0} resultados`);
         
         return (data || []).map(art => ({
             id: art.id,
@@ -284,7 +286,7 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
                 similitud: 0.99
             };
         }
-        console.log(` Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
+        console.log(`❌ Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
         return null;
     } catch (e) {
         console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
@@ -348,7 +350,7 @@ async function clasificarConsulta(pregunta) {
         console.log(`📋 Clasificación: Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("⚠️ Clasificación falló, usando fallback...");
+        console.warn("️ Clasificación falló, usando fallback...");
         const lower = pregunta.toLowerCase();
         if (lower.includes('divorcio') || lower.includes('matrimonio') || lower.includes('hijo') || 
             lower.includes('herencia') || lower.includes('contrato') || lower.includes('accidente') ||
@@ -369,11 +371,12 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== FORZAR ARTÍCULOS CON INYECCIÓN DE TEXTO LITERAL (OPCIÓN 1) ==========
+// ========== FORZAR ARTÍCULOS CON COINCIDENCIA PARCIAL NORMALIZADA ==========
 async function forzarArticulosClave(pregunta, candidatos, leyId) {
     const preguntaNormalizada = normalizarTexto(pregunta);
     const articulosForzados = [];
     
+    // CORRECCIÓN: Usar coincidencia parcial normalizada en lugar de exacta
     for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
         const temaNormalizado = normalizarTexto(tema);
         if (preguntaNormalizada.includes(temaNormalizado)) {
@@ -381,7 +384,6 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
             for (const numArt of articulos) {
                 const articulo = await buscarArticuloPorNumero(leyId, numArt);
                 if (articulo) {
-                    // OPCION 1: Marcar artículos forzados para inyección prioritaria
                     articulo.esForzado = true; 
                     articulosForzados.push(articulo);
                 }
@@ -393,13 +395,14 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     if (articulosForzados.length > 0) {
         const idsForzados = new Set(articulosForzados.map(a => a.id));
         const existentes = candidatos.filter(a => !idsForzados.has(a.id));
+        // PRIORIDAD: Artículos forzados SIEMPRE al inicio
         return [...articulosForzados, ...existentes];
     }
     
     return candidatos;
 }
 
-// ========== VALIDACIÓN POST-GENERACIÓN POR REGEX (OPCIÓN 3) ==========
+// ========== VALIDACIÓN POST-GENERACIÓN POR REGEX ==========
 function validarLapsosCriticos(respuesta) {
     const correcciones = [
         { patron: /36\s*horas/gi, reemplazo: "48 horas", contexto: "flagrancia" },
@@ -413,7 +416,6 @@ function validarLapsosCriticos(respuesta) {
 
     for (const regla of correcciones) {
         if (respuestaCorregida.match(regla.patron)) {
-            // Solo aplicar si el contexto general coincide (evita falsos positivos en otras leyes)
             const lowerResp = respuestaCorregida.toLowerCase();
             if (lowerResp.includes(regla.contexto) || 
                 (regla.contexto === 'flagrancia' && (lowerResp.includes('detenido') || lowerResp.includes('copp')))) {
@@ -437,7 +439,7 @@ async function generarRespuesta(pregunta, articulos, leyId) {
     let contextoLegal = "";
     const numerosArticulos = [];
     
-    // OPCION 1: Inyectar artículos forzados primero con etiqueta especial
+    // Inyectar artículos forzados primero con etiqueta especial
     const forzados = mejores.filter(a => a.esForzado);
     const noForzados = mejores.filter(a => !a.esForzado);
     
@@ -451,18 +453,18 @@ async function generarRespuesta(pregunta, articulos, leyId) {
     
     let instruccion = "";
     if (numerosArticulos.length > 0) {
-        instruccion = `\n⚠️ SOLO puedes citar los artículos ${numerosArticulos.join(', ')}. No cites ningún otro artículo. Si citas otro, tu respuesta será inválida.`;
+        instruccion = `\n⚠️ SOLO puedes citar los artículos ${numerosArticulos.join(', ')}. No cites ningún otro artículo.`;
     }
     
     const systemPrompt = `
 Eres "LexnaVe", un asistente jurídico venezolano.
 
-⚠️ REGLA DE ORO:
+️ REGLA DE ORO:
 1. SOLO puedes citar los artículos que están en el CONTEXTO.
 2. ${instruccion}
 3. NO inventes artículos ni lapsos. Si no encuentras, di "No tengo información suficiente".
 4. Cita el artículo TEXTUALMENTE entre comillas.
-5. Para lapsos procesales, usa EXACTAMENTE los números que aparecen en el texto legal del contexto. Nunca calcules ni interpretes plazos.
+5. Para lapsos procesales, usa EXACTAMENTE los números del texto legal. Nunca calcules plazos.
 
 ESTRUCTURA:
 1. INTRODUCCIÓN (2 líneas)
@@ -505,9 +507,7 @@ function limpiarRespuesta(respuesta, articulos) {
     const matches = respuesta.matchAll(regex);
     const articulosMencionados = [...new Set([...matches].map(m => parseInt(m[1])))];
     
-    if (articulosMencionados.length === 0) {
-        return respuesta;
-    }
+    if (articulosMencionados.length === 0) return respuesta;
     
     const idsContexto = [];
     for (const art of articulos) {
@@ -518,11 +518,9 @@ function limpiarRespuesta(respuesta, articulos) {
     const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
     
     if (invalidos.length > 0) {
-        console.log(`️ Artículos alucinados: ${invalidos.join(', ')}`);
-        console.log(` Artículos disponibles: ${idsContexto.join(', ')}`);
-        
+        console.log(`⚠️ Artículos alucinados: ${invalidos.join(', ')}`);
         const numeros = articulos.slice(0, 3).map(a => a.numero_articulo).join(', ');
-        return `Según el Código Civil, los artículos relevantes son: ${numeros}. Consulta con un abogado para un análisis detallado.`;
+        return `Según el Código Civil, los artículos relevantes son: ${numeros}. Consulta con un abogado.`;
     }
     
     console.log(`✅ Artículos citados existen en el contexto`);
@@ -538,7 +536,7 @@ app.post('/api/consultar', async (req, res) => {
     try {
         let leyId, articulos;
 
-        // MODO 1: BÚSQUEDA POR ARTÍCULO DIRECTO
+        // MODO 1: ARTÍCULO DIRECTO
         const articuloDirecto = detectarArticuloDirecto(pregunta);
         if (articuloDirecto) {
             console.log(`🎯 Modo Artículo Directo: Art. ${articuloDirecto.numero}`);
@@ -560,7 +558,7 @@ app.post('/api/consultar', async (req, res) => {
             }
         } 
         
-        // MODO 2: BÚSQUEDA POR PALABRA CLAVE / TEMA ESPECÍFICO
+        // MODO 2: PALABRA CLAVE / TEMA
         else if (Object.keys(FORZAR_ARTICULOS).some(tema => normalizarTexto(pregunta).includes(normalizarTexto(tema)))) {
             console.log(`🔑 Modo Palabra Clave / Tema`);
             const clasificacion = await clasificarConsulta(pregunta);
@@ -573,7 +571,7 @@ app.post('/api/consultar', async (req, res) => {
             articulos = [...articulos, ...vectoriales.filter(v => !idsExistentes.has(v.id))];
         }
         
-        // MODO 3: BÚSQUEDA POR CASO / CONSULTA COMPLEJA
+        // MODO 3: CASO / CONSULTA COMPLEJA (CON FORZADO INTEGRADO)
         else {
             console.log(`💼 Modo Caso / Consulta Compleja`);
             const clasificacion = await clasificarConsulta(pregunta);
@@ -582,6 +580,7 @@ app.post('/api/consultar', async (req, res) => {
             console.log(`🔍 Buscando en ${LEY_MAP[leyId]}`);
             
             articulos = await buscarPorSimilitud(pregunta, leyId, 30);
+            // CORRECCIÓN: Forzar artículos incluso en Modo Caso
             articulos = await forzarArticulosClave(pregunta, articulos, leyId);
 
             // MODO 4: FALLBACK TRANSVERSAL
@@ -596,21 +595,21 @@ app.post('/api/consultar', async (req, res) => {
 
         if (!articulos || articulos.length === 0) {
             return res.json({
-                respuesta: "️ No encontré artículos relevantes. Consulta con un abogado."
+                respuesta: "⚠️ No encontré artículos relevantes. Consulta con un abogado."
             });
         }
 
-        console.log(`📚 Total: ${articulos.length} artículos encontrados`);
+        console.log(` Total: ${articulos.length} artículos encontrados`);
 
         let respuesta = await generarRespuesta(pregunta, articulos, leyId);
 
         if (respuesta) {
-            // OPCION 3: Validación post-generación antes de enviar
+            // OPCION 3: Validación post-generación
             const validacion = validarLapsosCriticos(respuesta);
             respuesta = validacion.respuesta;
             
             if (validacion.corregida) {
-                console.log('🛡️ Respuesta corregida automáticamente por validación de lapsos');
+                console.log('️ Respuesta corregida automáticamente por validación de lapsos');
             }
             
             respuesta = limpiarRespuesta(respuesta, articulos);
