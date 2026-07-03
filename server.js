@@ -268,14 +268,89 @@ async function generarEmbedding(texto) {
     }
 }
 
-// ========== BUSCAR POR SIMILITUD ==========
+// ========== BÚSQUEDA POR NÚMERO DE ARTÍCULO (EXACTO) ==========
+async function buscarPorNumeroArticulo(leyId, numeroArticulo) {
+    try {
+        // Limpiar el número de artículo (quitar "Artículo", puntos, etc.)
+        const numLimpio = numeroArticulo.toString().replace(/[^0-9]/g, '');
+        
+        const { data, error } = await supabase
+            .from('articulos')
+            .select('id, numero_articulo, contenido, ley_id')
+            .eq('ley_id', parseInt(leyId))
+            .ilike('numero_articulo', `%${numLimpio}%`)
+            .maybeSingle();
+        
+        if (data && !error) {
+            console.log(`✅ Búsqueda por número: Artículo ${numLimpio} encontrado`);
+            return [{
+                id: data.id,
+                numero_articulo: data.numero_articulo,
+                contenido: data.contenido,
+                ley_id: data.ley_id,
+                ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
+                similitud: 1.0
+            }];
+        }
+        return null;
+    } catch (e) {
+        console.error('Error en búsqueda por número:', e);
+        return null;
+    }
+}
+
+// ========== BÚSQUEDA POR TEXTO COMPLETO (ILINE) ==========
+async function buscarPorTextoCompleto(pregunta, leyId = null, limite = 30) {
+    try {
+        const query = supabase
+            .from('articulos')
+            .select('id, numero_articulo, contenido, ley_id');
+        
+        if (leyId) {
+            query.eq('ley_id', parseInt(leyId));
+        }
+        
+        // Usar tsquery para búsqueda de texto completo en PostgreSQL
+        const palabras = pregunta.split(' ').filter(p => p.length > 3).slice(0, 5).join(' & ');
+        
+        if (palabras.length > 0) {
+            const { data, error } = await query.textSearch('contenido', palabras, {
+                type: 'websearch',
+                config: 'spanish'
+            }).limit(limite);
+            
+            if (error) {
+                console.error('Error en búsqueda de texto completo:', error);
+                return null;
+            }
+            
+            if (data && data.length > 0) {
+                console.log(`✅ Búsqueda de texto completo: ${data.length} resultados`);
+                return data.map(art => ({
+                    id: art.id,
+                    numero_articulo: art.numero_articulo,
+                    contenido: art.contenido,
+                    ley_id: art.ley_id,
+                    ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
+                    similitud: 0.8
+                }));
+            }
+        }
+        return null;
+    } catch (e) {
+        console.error('Error en búsqueda de texto completo:', e);
+        return null;
+    }
+}
+
+// ========== BÚSQUEDA POR SIMILITUD (VECTORIAL) ==========
 async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
     try {
         const embedding = await generarEmbedding(pregunta);
         
         if (!embedding) {
-            console.log('📝 Embedding no disponible, usando búsqueda por texto');
-            return buscarPorTexto(pregunta, leyId, limite);
+            console.log('📝 Embedding no disponible');
+            return null;
         }
         
         const { data, error } = await supabase.rpc('match_articles', {
@@ -287,10 +362,10 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
         
         if (error) {
             console.error('❌ Error en búsqueda vectorial:', error);
-            return buscarPorTexto(pregunta, leyId, limite);
+            return null;
         }
         
-        console.log(`🔍 Búsqueda vectorial: ${data?.length || 0} resultados`);
+        console.log(`✅ Búsqueda vectorial: ${data?.length || 0} resultados`);
         
         return (data || []).map(art => ({
             id: art.id,
@@ -303,72 +378,89 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
         
     } catch (e) {
         console.error('❌ Error en búsqueda vectorial:', e.message);
-        return buscarPorTexto(pregunta, leyId, limite);
+        return null;
     }
 }
 
-// ========== BÚSQUEDA POR TEXTO ==========
-async function buscarPorTexto(pregunta, leyId = null, limite = 30) {
-    try {
-        const query = supabase
-            .from('articulos')
-            .select('id, numero_articulo, contenido, ley_id');
-        
-        if (leyId) {
-            query.eq('ley_id', parseInt(leyId));
+// ========== BÚSQUEDA HÍBRIDA (COMBINADA) ==========
+async function buscarArticulos(pregunta, leyId = null) {
+    let resultados = [];
+    let idsExistentes = new Set();
+    
+    console.log(`🔍 Búsqueda híbrida para: "${pregunta}"`);
+    
+    // === ESTRATEGIA 1: BÚSQUEDA POR NÚMERO DE ARTÍCULO ===
+    // Detectar números en la pregunta
+    const numeros = pregunta.match(/\b\d{1,4}\b/g);
+    if (numeros) {
+        for (const num of numeros) {
+            if (num.length > 2) { // Ignorar números pequeños como "1", "2"
+                const resultado = await buscarPorNumeroArticulo(leyId || 3, num);
+                if (resultado && resultado.length > 0) {
+                    const ids = resultado.map(a => a.id);
+                    for (const art of resultado) {
+                        if (!idsExistentes.has(art.id)) {
+                            resultados.push(art);
+                            idsExistentes.add(art.id);
+                        }
+                    }
+                    console.log(`📌 Artículo ${num} encontrado por número exacto`);
+                }
+            }
         }
-        
-        const { data, error } = await query.limit(limite);
-        
-        if (error) {
-            console.error('❌ Error en búsqueda por texto:', error);
-            return [];
-        }
-        
-        console.log(`📝 Búsqueda por texto: ${data?.length || 0} resultados`);
-        
-        return (data || []).map(art => ({
-            id: art.id,
-            numero_articulo: art.numero_articulo,
-            contenido: art.contenido,
-            ley_id: art.ley_id,
-            ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
-            similitud: 0
-        }));
-        
-    } catch (e) {
-        console.error('❌ Error en búsqueda por texto:', e.message);
-        return [];
     }
-}
-
-// ========== BUSCAR ARTÍCULO POR NÚMERO ==========
-async function buscarArticuloPorNumero(leyId, numeroArticulo) {
-    try {
-        const { data, error } = await supabase
-            .from('articulos')
-            .select('id, numero_articulo, contenido, ley_id')
-            .eq('ley_id', parseInt(leyId))
-            .ilike('numero_articulo', `%${numeroArticulo}%`)
-            .maybeSingle();
-        
-        if (data && !error) {
-            console.log(`✅ Artículo ${numeroArticulo} encontrado: "${data.numero_articulo}"`);
-            return {
-                id: data.id,
-                numero_articulo: data.numero_articulo,
-                contenido: data.contenido,
-                ley_id: data.ley_id,
-                ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
-                similitud: 0.99
-            };
+    
+    // === ESTRATEGIA 2: BÚSQUEDA POR TEXTO COMPLETO ===
+    if (resultados.length < 5) {
+        const textoResultado = await buscarPorTextoCompleto(pregunta, leyId, 20);
+        if (textoResultado) {
+            for (const art of textoResultado) {
+                if (!idsExistentes.has(art.id)) {
+                    resultados.push(art);
+                    idsExistentes.add(art.id);
+                }
+            }
         }
-        console.log(`❌ Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
-        return null;
-    } catch (e) {
-        console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
-        return null;
     }
+    
+    // === ESTRATEGIA 3: BÚSQUEDA VECTORIAL (SIMILITUD) ===
+    if (resultados.length < 10) {
+        const vectorResultado = await buscarPorSimilitud(pregunta, leyId, 30);
+        if (vectorResultado) {
+            for (const art of vectorResultado) {
+                if (!idsExistentes.has(art.id)) {
+                    resultados.push(art);
+                    idsExistentes.add(art.id);
+                }
+            }
+        }
+    }
+    
+    // === ESTRATEGIA 4: FORZAR ARTÍCULOS POR TEMA (FALLBACK) ===
+    if (resultados.length < 5) {
+        const preguntaNormalizada = normalizarTexto(pregunta);
+        for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
+            const temaNormalizado = normalizarTexto(tema);
+            if (preguntaNormalizada.includes(temaNormalizado)) {
+                console.log(`🔑 Tema detectado (fallback): "${tema}"`);
+                for (const numArt of articulos) {
+                    const art = await buscarPorNumeroArticulo(leyId || 3, numArt);
+                    if (art && art.length > 0) {
+                        for (const a of art) {
+                            if (!idsExistentes.has(a.id)) {
+                                resultados.push(a);
+                                idsExistentes.add(a.id);
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+    
+    console.log(`📚 Total artículos encontrados: ${resultados.length}`);
+    return resultados.slice(0, 30);
 }
 
 // ========== CLASIFICACIÓN ==========
@@ -424,34 +516,6 @@ async function clasificarConsulta(pregunta) {
         if (lower.includes('registro') || lower.includes('notaría')) return { ley_id: 11 };
         return { ley_id: 3 };
     }
-}
-
-// ========== FORZAR ARTÍCULOS ==========
-async function forzarArticulosClave(pregunta, candidatos, leyId) {
-    const preguntaNormalizada = normalizarTexto(pregunta);
-    const articulosForzados = [];
-    
-    for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
-        const temaNormalizado = normalizarTexto(tema);
-        if (preguntaNormalizada.includes(temaNormalizado)) {
-            console.log(`🔑 Tema detectado: "${tema}"`);
-            for (const numArt of articulos) {
-                const articulo = await buscarArticuloPorNumero(leyId, numArt);
-                if (articulo) {
-                    articulosForzados.push(articulo);
-                }
-            }
-            break;
-        }
-    }
-    
-    if (articulosForzados.length > 0) {
-        const idsForzados = new Set(articulosForzados.map(a => a.id));
-        const existentes = candidatos.filter(a => !idsForzados.has(a.id));
-        return [...articulosForzados, ...existentes];
-    }
-    
-    return candidatos;
 }
 
 // ========== GENERAR RESPUESTA ==========
@@ -540,9 +604,8 @@ function limpiarRespuesta(respuesta, articulos) {
         console.log(`⚠️ Artículos alucinados: ${invalidos.join(', ')}`);
         console.log(`📚 Artículos disponibles: ${idsContexto.join(', ')}`);
         
-        // Si hay alucinaciones, construir respuesta fallback con los artículos correctos
         const numeros = articulos.slice(0, 3).map(a => a.numero_articulo).join(', ');
-        return `Según el Código Civil, los artículos relevantes son: ${numeros}. Consulta con un abogado para un análisis detallado.`;
+        return `Según el ${LEY_MAP[articulos[0]?.ley_id] || 'Código'}, los artículos relevantes son: ${numeros}. Consulta con un abogado para un análisis detallado.`;
     }
     
     console.log(`✅ Artículos citados existen en el contexto`);
@@ -561,12 +624,12 @@ app.post('/api/consultar', async (req, res) => {
 
         console.log(`🔍 Buscando en ${LEY_MAP[leyId]}`);
         
-        let articulos = await buscarPorSimilitud(pregunta, leyId, 30);
-        articulos = await forzarArticulosClave(pregunta, articulos, leyId);
+        // ===== BÚSQUEDA HÍBRIDA COMPLETA =====
+        let articulos = await buscarArticulos(pregunta, leyId);
 
         if (articulos.length === 0) {
             console.log('🔄 Buscando en todas las leyes...');
-            articulos = await buscarPorSimilitud(pregunta, null, 30);
+            articulos = await buscarArticulos(pregunta, null);
             if (articulos.length > 0) {
                 leyId = articulos[0].ley_id;
             }
