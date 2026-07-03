@@ -42,14 +42,21 @@ function normalizarTexto(texto) {
         .replace(/[^a-z0-9 ]/g, '');
 }
 
-// ========== ARTÍCULOS CLAVE POR TEMA (CON SINÓNIMOS) ==========
+// ========== ARTÍCULOS CLAVE CON COINCIDENCIA COMPUESTA ==========
+// Formato: 
+//   'tema_simple': ['articulos'] -> Se activa si la palabra existe sola
+//   'tema_compuesto': { tokens: ['palabra_clave', 'contexto1|contexto2'], articulos: ['...'] } 
+//      -> Solo se activa si 'palabra_clave' Y AL MENOS UNO de los contextos están presentes
 const FORZAR_ARTICULOS = {
+    // ===== Código Penal (Ley 6) - Términos unívocos =====
     'hurto': ['451', '452', '453'], 'robo': ['455', '456', '457'], 
     'homicidio': ['405', '406', '409'], 'lesiones': ['413', '414', '415'], 
     'estafa': ['461', '462'], 'corrupcion': ['60', '61', '62'], 
     'peculado': ['63', '64'], 'cohecho': ['67', '68'], 
     'secuestro': ['460'], 'extorsion': ['460'],
     'pena': ['451', '455', '405', '406'], 'prision': ['451', '455', '405', '406'],
+    
+    // ===== Código Civil (Ley 3) =====
     'prescripcion': ['1969', '1950', '1951', '1952'], 'plazo': ['1969'],
     'divorcio': ['185', '186', '187'], 'separacion': ['185', '186', '187'],
     'matrimonio': ['82', '83', '84', '85', '86', '87', '88'],
@@ -65,6 +72,8 @@ const FORZAR_ARTICULOS = {
     'responsabilidad': ['1185', '1190'], 'daño': ['1185', '1190', '1810'],
     'propiedad': ['545', '546', '547'], 'posesion': ['771', '772', '773'],
     'usucapion': ['1977', '1978'],
+    
+    // ===== CPC =====
     'procedimiento oral': ['859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869'],
     'oral': ['859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869'],
     'lapsos': ['859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869'],
@@ -85,6 +94,8 @@ const FORZAR_ARTICULOS = {
     'medidas preventivas': ['585', '586', '587', '588', '589', '590'],
     'medidas cautelares': ['585', '586', '587', '588', '589', '590'],
     'secuestro': ['585', '586', '587'],
+    
+    // ===== COPP =====
     'flagrancia': ['373'], 'detencion': ['373', '374', '375'],
     'fianza': ['244', '245'], 'privacion libertad': ['236', '237', '238'],
     'libertad provisional': ['242', '243', '244'],
@@ -95,6 +106,8 @@ const FORZAR_ARTICULOS = {
     'derecho defensa': ['8', '9', '10'], 'presuncion inocencia': ['8'],
     'debido proceso penal': ['8', '9'], 'apelacion': ['438', '439'],
     'casacion': ['443', '444', '445'],
+    
+    // ===== CRBV =====
     'derechos humanos': ['19', '20', '21', '22', '23'], 'derecho a la vida': ['43'],
     'derecho a la libertad': ['44', '45', '46'], 'debido proceso': ['49'],
     'derecho a la defensa': ['49'], 'libertad de expresion': ['57'],
@@ -121,27 +134,43 @@ const FORZAR_ARTICULOS = {
     'gobernador': ['160', '161', '162', '163'],
     'reforma constitucional': ['341', '342', '343', '344', '345', '346', '347', '348', '349', '350'],
     'enmienda': ['341', '342', '343', '344', '345'],
-    'propiedad horizontal': ['5', '7', '8', '9', '14'], 'condominio': ['5', '7', '8', '9', '14'],
-    'vecino': ['5', '7', '8', '9', '14'], 'cuotas mantenimiento': ['14', '7', '5'],
+    
+    // ===== LPH (COINCIDENCIA COMPUESTA PARA EVITAR FALSOS POSITIVOS) =====
+    // Solo activa LPH si "vecino" aparece CON contexto de condominio
+    'vecino_lph': { 
+        tokens: ['vecino', 'condominio|cuota|ascensor|junta|copropietario|cosas comunes'], 
+        articulos: ['5', '7', '8', '9', '14'] 
+    },
+    'propiedad horizontal': ['5', '7', '8', '9', '14'], 
+    'condominio': ['5', '7', '8', '9', '14'],
+    'cuotas mantenimiento': ['14', '7', '5'],
     'administrador': ['18', '19', '20', '21'], 'junta condominio': ['18', '19'],
     'asamblea copropietarios': ['18', '19', '22', '23', '24'],
     'cosas comunes': ['5', '8', '11'], 'gastos comunes': ['11', '12', '13', '14'],
     'documento condominio': ['26', '27', '28', '29'],
     'sanciones': ['39', '40', '41', '42', '43', '44', '45', '46', '47'],
     'ruido': ['3', '8'], 'molestias': ['3', '8'],
+    
+    // ===== Comercio =====
     'letra cambio': ['410'], 'letra de cambio': ['410'], 'letras de cambio': ['410'],
     'requisitos letra': ['410'], 'pagare': ['410'], 'cheque': ['410'],
     'endoso': ['410', '411', '412'], 'aval': ['410', '411', '412'],
     'protesto': ['413', '414'], 'sociedad mercantil': ['200', '201', '202'],
     'sociedad anonima': ['200', '201', '202'], 'empresa': ['2', '5', '10'],
     'comerciante': ['2', '5', '10'], 'acto comercio': ['2', '5', '10'],
+    
+    // ===== Violencia Mujer =====
     'violencia mujer': ['1', '2', '3', '4', '5'], 'violencia genero': ['1', '2', '3', '4', '5'],
     'violencia domestica': ['1', '2', '3', '4', '5'], 'medidas proteccion': ['1', '2', '3'],
     'violencia psicologica': ['1', '2', '3'], 'violencia fisica': ['1', '2', '3'],
     'violencia sexual': ['1', '2', '3'], 'violencia patrimonial': ['1', '2', '3'],
     'acoso sexual': ['1', '2', '3'],
+    
+    // ===== Arrendamiento Vivienda =====
     'arrendamiento vivienda': ['1', '2', '3', '4', '5'], 'desalojo': ['20', '21', '22'],
     'canon': ['1', '2', '3'], 'contrato arrendamiento': ['1', '2', '3'],
+    
+    // ===== Registros =====
     'registro': ['1', '2', '3'], 'notaría': ['1', '2', '3'],
     'protocolizacion': ['1', '2', '3'], 'registro publico': ['1', '2', '3']
 };
@@ -295,8 +324,9 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
 
 // ========== DETECTAR CONSULTA DIRECTA DE ARTÍCULO (REGEX DEFINITIVA) ==========
 function detectarArticuloDirecto(pregunta) {
+    if (!pregunta) return null;
+    
     // Regex ultra-permisiva: captura "art", "articulo", "artículo" + cualquier separador + número
-    // Opcionalmente captura la ley mencionada después del número
     const regex = /(?:art(?:[íi]culo)?\.?\s*)(\d+)(?:\s+(?:del|de\s+la|del\s+c[oó]digo|c[oó]digo)\s+(\w+(?:\s+\w+)*))?/i;
     const match = pregunta.match(regex);
     
@@ -351,7 +381,7 @@ async function clasificarConsulta(pregunta) {
         console.log(`📋 Clasificación: Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("⚠️ Clasificación falló, usando fallback...");
+        console.warn("️ Clasificación falló, usando fallback...");
         const lower = pregunta.toLowerCase();
         if (lower.includes('divorcio') || lower.includes('matrimonio') || lower.includes('hijo') || 
             lower.includes('herencia') || lower.includes('contrato') || lower.includes('accidente') ||
@@ -372,15 +402,45 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== FORZAR ARTÍCULOS CON COINCIDENCIA PARCIAL NORMALIZADA ==========
+// ========== FORZAR ARTÍCULOS CON COINCIDENCIA COMPUESTA ==========
 async function forzarArticulosClave(pregunta, candidatos, leyId) {
     const preguntaNormalizada = normalizarTexto(pregunta);
     const articulosForzados = [];
     
-    for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
-        const temaNormalizado = normalizarTexto(tema);
-        if (preguntaNormalizada.includes(temaNormalizado)) {
-            console.log(`🔑 Tema detectado: "${tema}"`);
+    for (const [tema, config] of Object.entries(FORZAR_ARTICULOS)) {
+        let coincide = false;
+        
+        // Manejo de coincidencia compuesta vs simple
+        if (typeof config === 'object' && config.tokens) {
+            // COINCIDENCIA COMPUESTA: Requiere palabra clave + al menos un token de contexto
+            const [palabraClave, ...tokensContexto] = config.tokens;
+            const tienePalabraClave = preguntaNormalizada.includes(normalizarTexto(palabraClave));
+            
+            if (tienePalabraClave) {
+                // Verificar si AL MENOS UNO de los tokens de contexto está presente
+                const tieneContexto = tokensContexto.some(token => {
+                    const alternativas = token.split('|');
+                    return alternativas.some(alt => preguntaNormalizada.includes(normalizarTexto(alt)));
+                });
+                
+                if (tieneContexto) {
+                    console.log(`🔑 Tema compuesto detectado: "${tema}" (requiere contexto)`);
+                    coincide = true;
+                } else {
+                    console.log(`⏭️ Palabra "${palabraClave}" encontrada pero sin contexto requerido. Ignorando.`);
+                }
+            }
+        } else {
+            // COINCIDENCIA SIMPLE: Solo requiere que la palabra exista
+            const temaNormalizado = normalizarTexto(tema);
+            if (preguntaNormalizada.includes(temaNormalizado)) {
+                console.log(`🔑 Tema simple detectado: "${tema}"`);
+                coincide = true;
+            }
+        }
+        
+        if (coincide) {
+            const articulos = typeof config === 'object' ? config.articulos : config;
             for (const numArt of articulos) {
                 const articulo = await buscarArticuloPorNumero(leyId, numArt);
                 if (articulo) {
@@ -388,7 +448,7 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
                     articulosForzados.push(articulo);
                 }
             }
-            break;
+            break; // Solo activar el primer tema coincidente
         }
     }
     
@@ -516,7 +576,7 @@ function limpiarRespuesta(respuesta, articulos) {
     const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
     
     if (invalidos.length > 0) {
-        console.log(`⚠️ Artículos alucinados: ${invalidos.join(', ')}`);
+        console.log(`️ Artículos alucinados: ${invalidos.join(', ')}`);
         const numeros = articulos.slice(0, 3).map(a => a.numero_articulo).join(', ');
         return `Según el Código Civil, los artículos relevantes son: ${numeros}. Consulta con un abogado.`;
     }
@@ -537,7 +597,7 @@ app.post('/api/consultar', async (req, res) => {
         // MODO 1: ARTÍCULO DIRECTO (Regex definitiva)
         const articuloDirecto = detectarArticuloDirecto(pregunta);
         if (articuloDirecto) {
-            console.log(` Modo Artículo Directo: Art. ${articuloDirecto.numero}`);
+            console.log(`🎯 Modo Artículo Directo: Art. ${articuloDirecto.numero}`);
             leyId = articuloDirecto.leyId || 3;
             
             const artEncontrado = await buscarArticuloPorNumero(leyId, articuloDirecto.numero);
@@ -556,8 +616,24 @@ app.post('/api/consultar', async (req, res) => {
             }
         } 
         
-        // MODO 2: PALABRA CLAVE / TEMA
-        else if (Object.keys(FORZAR_ARTICULOS).some(tema => normalizarTexto(pregunta).includes(normalizarTexto(tema)))) {
+        // MODO 2: PALABRA CLAVE / TEMA (Con coincidencia compuesta)
+        else if (Object.keys(FORZAR_ARTICULOS).some(tema => {
+            const config = FORZAR_ARTICULOS[tema];
+            const preguntaNorm = normalizarTexto(pregunta);
+            
+            if (typeof config === 'object' && config.tokens) {
+                const [palabraClave, ...tokensContexto] = config.tokens;
+                const tieneClave = preguntaNorm.includes(normalizarTexto(palabraClave));
+                if (!tieneClave) return false;
+                
+                return tokensContexto.some(token => {
+                    const alternativas = token.split('|');
+                    return alternativas.some(alt => preguntaNorm.includes(normalizarTexto(alt)));
+                });
+            } else {
+                return preguntaNorm.includes(normalizarTexto(tema));
+            }
+        })) {
             console.log(`🔑 Modo Palabra Clave / Tema`);
             const clasificacion = await clasificarConsulta(pregunta);
             leyId = clasificacion.ley_id || 3;
