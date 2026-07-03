@@ -44,7 +44,7 @@ function normalizarTexto(texto) {
 
 // ========== ARTÍCULOS CLAVE CON COINCIDENCIA COMPUESTA ==========
 const FORZAR_ARTICULOS = {
-    // ===== Código Penal (Ley 6) - Términos unívocos =====
+    // ===== Código Penal (Ley 6) =====
     'hurto': ['451', '452', '453'], 'robo': ['455', '456', '457'], 
     'homicidio': ['405', '406', '409'], 'lesiones': ['413', '414', '415'], 
     'estafa': ['461', '462'], 'corrupcion': ['60', '61', '62'], 
@@ -131,7 +131,7 @@ const FORZAR_ARTICULOS = {
     'reforma constitucional': ['341', '342', '343', '344', '345', '346', '347', '348', '349', '350'],
     'enmienda': ['341', '342', '343', '344', '345'],
     
-    // ===== LPH (COINCIDENCIA COMPUESTA PARA EVITAR FALSOS POSITIVOS) =====
+    // ===== LPH (COINCIDENCIA COMPUESTA) =====
     'vecino_lph': { 
         tokens: ['vecino', 'condominio|cuota|ascensor|junta|copropietario|cosas comunes'], 
         articulos: ['5', '7', '8', '9', '14'] 
@@ -271,7 +271,7 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 30) {
             return [];
         }
         
-        console.log(`📝 Búsqueda por texto: ${data?.length || 0} resultados`);
+        console.log(` Búsqueda por texto: ${data?.length || 0} resultados`);
         
         return (data || []).map(art => ({
             id: art.id,
@@ -317,7 +317,7 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     }
 }
 
-// ========== DETECTAR CONSULTA DIRECTA DE ARTÍCULO (REGEX DEFINITIVA) ==========
+// ========== DETECTAR CONSULTA DIRECTA DE ARTÍCULO ==========
 function detectarArticuloDirecto(pregunta) {
     if (!pregunta) return null;
     
@@ -375,7 +375,7 @@ async function clasificarConsulta(pregunta) {
         console.log(`📋 Clasificación: Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("⚠️ Clasificación falló, usando fallback...");
+        console.warn("️ Clasificación falló, usando fallback...");
         const lower = pregunta.toLowerCase();
         if (lower.includes('divorcio') || lower.includes('matrimonio') || lower.includes('hijo') || 
             lower.includes('herencia') || lower.includes('contrato') || lower.includes('accidente') ||
@@ -396,9 +396,9 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== FORZAR ARTÍCULOS CON COINCIDENCIA COMPUESTA (CORREGIDO) ==========
+// ========== FORZAR ARTÍCULOS CON COINCIDENCIA COMPUESTA (BLINDADO) ==========
 async function forzarArticulosClave(pregunta, candidatos, leyId) {
-    // CORRECCIÓN: Validar que candidatos sea siempre un array
+    // BLINDAJE TOTAL: Garantizar que candidatos sea siempre un array
     if (!Array.isArray(candidatos)) {
         console.warn('⚠️ forzarArticulosClave recibió candidatos no válidos, usando array vacío');
         candidatos = [];
@@ -410,14 +410,11 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     for (const [tema, config] of Object.entries(FORZAR_ARTICULOS)) {
         let coincide = false;
         
-        // Manejo de coincidencia compuesta vs simple
         if (typeof config === 'object' && config.tokens) {
-            // COINCIDENCIA COMPUESTA: Requiere palabra clave + al menos un token de contexto
             const [palabraClave, ...tokensContexto] = config.tokens;
             const tienePalabraClave = preguntaNormalizada.includes(normalizarTexto(palabraClave));
             
             if (tienePalabraClave) {
-                // Verificar si AL MENOS UNO de los tokens de contexto está presente
                 const tieneContexto = tokensContexto.some(token => {
                     const alternativas = token.split('|');
                     return alternativas.some(alt => preguntaNormalizada.includes(normalizarTexto(alt)));
@@ -427,14 +424,13 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
                     console.log(`🔑 Tema compuesto detectado: "${tema}" (requiere contexto)`);
                     coincide = true;
                 } else {
-                    console.log(`⏭️ Palabra "${palabraClave}" encontrada pero sin contexto requerido. Ignorando.`);
+                    console.log(`️ Palabra "${palabraClave}" encontrada pero sin contexto requerido. Ignorando.`);
                 }
             }
         } else {
-            // COINCIDENCIA SIMPLE: Solo requiere que la palabra exista
             const temaNormalizado = normalizarTexto(tema);
             if (preguntaNormalizada.includes(temaNormalizado)) {
-                console.log(`🔑 Tema simple detectado: "${tema}"`);
+                console.log(` Tema simple detectado: "${tema}"`);
                 coincide = true;
             }
         }
@@ -448,7 +444,7 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
                     articulosForzados.push(articulo);
                 }
             }
-            break; // Solo activar el primer tema coincidente
+            break;
         }
     }
     
@@ -529,7 +525,7 @@ ESTRUCTURA:
 2. "Según el Artículo X de la Ley Y: [texto literal]"
 3. Explicación breve
 4. ACCIONES RECOMENDADAS (3 pasos)
-5. ️ Consulta con un abogado.
+5. ⚖️ Consulta con un abogado.
 `;
 
     const promptFinal = `
@@ -576,7 +572,7 @@ function limpiarRespuesta(respuesta, articulos) {
     const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
     
     if (invalidos.length > 0) {
-        console.log(`⚠️ Artículos alucinados: ${invalidos.join(', ')}`);
+        console.log(`️ Artículos alucinados: ${invalidos.join(', ')}`);
         const numeros = articulos.slice(0, 3).map(a => a.numero_articulo).join(', ');
         return `Según el Código Civil, los artículos relevantes son: ${numeros}. Consulta con un abogado.`;
     }
@@ -594,7 +590,7 @@ app.post('/api/consultar', async (req, res) => {
     try {
         let leyId, articulos;
 
-        // MODO 1: ARTÍCULO DIRECTO (Regex definitiva)
+        // MODO 1: ARTÍCULO DIRECTO
         const articuloDirecto = detectarArticuloDirecto(pregunta);
         if (articuloDirecto) {
             console.log(`🎯 Modo Artículo Directo: Art. ${articuloDirecto.numero}`);
@@ -604,7 +600,7 @@ app.post('/api/consultar', async (req, res) => {
             if (artEncontrado) {
                 articulos = [artEncontrado];
             } else {
-                console.log(` Art. no encontrado en ley ${leyId}, búsqueda transversal...`);
+                console.log(`🔄 Art. no encontrado en ley ${leyId}, búsqueda transversal...`);
                 for (const id of [3, 7, 5, 6, 1, 4, 2, 8, 9, 10, 11]) {
                     const art = await buscarArticuloPorNumero(id, articuloDirecto.numero);
                     if (art) {
@@ -616,7 +612,7 @@ app.post('/api/consultar', async (req, res) => {
             }
         } 
         
-        // MODO 2: PALABRA CLAVE / TEMA (Con coincidencia compuesta y corrección)
+        // MODO 2: PALABRA CLAVE / TEMA (BLINDADO)
         else if (Object.keys(FORZAR_ARTICULOS).some(tema => {
             const config = FORZAR_ARTICULOS[tema];
             const preguntaNorm = normalizarTexto(pregunta);
@@ -634,13 +630,21 @@ app.post('/api/consultar', async (req, res) => {
                 return preguntaNorm.includes(normalizarTexto(tema));
             }
         })) {
-            console.log(` Modo Palabra Clave / Tema`);
+            console.log(`🔑 Modo Palabra Clave / Tema`);
             const clasificacion = await clasificarConsulta(pregunta);
             leyId = clasificacion.ley_id || 3;
             
-            // CORRECCIÓN: Inicializar array vacío explícitamente
-            const candidatosIniciales = [];
-            articulos = await forzarArticulosClave(pregunta, candidatosIniciales, leyId);
+            // BLINDAJE: Inicialización explícita y segura
+            let candidatosIniciales = [];
+            try {
+                candidatosIniciales = await forzarArticulosClave(pregunta, [], leyId);
+            } catch (err) {
+                console.error('❌ Error en forzarArticulosClave:', err);
+                candidatosIniciales = [];
+            }
+            
+            // Garantizar que articulos sea array antes de operar
+            articulos = Array.isArray(candidatosIniciales) ? candidatosIniciales : [];
             
             const vectoriales = await buscarPorSimilitud(pregunta, leyId, 20);
             const idsExistentes = new Set(articulos.map(a => a.id));
@@ -660,7 +664,7 @@ app.post('/api/consultar', async (req, res) => {
 
             // MODO 4: FALLBACK TRANSVERSAL
             if (articulos.length === 0) {
-                console.log(' Fallback Transversal: Buscando en todas las leyes...');
+                console.log('🔄 Fallback Transversal: Buscando en todas las leyes...');
                 articulos = await buscarPorSimilitud(pregunta, null, 30);
                 if (articulos.length > 0) {
                     leyId = articulos[0].ley_id;
@@ -668,9 +672,9 @@ app.post('/api/consultar', async (req, res) => {
             }
         }
 
-        if (!articulos || articulos.length === 0) {
+        if (!articulos || !Array.isArray(articulos) || articulos.length === 0) {
             return res.json({
-                respuesta: "️ No encontré artículos relevantes. Consulta con un abogado."
+                respuesta: "⚠️ No encontré artículos relevantes. Consulta con un abogado."
             });
         }
 
@@ -683,7 +687,7 @@ app.post('/api/consultar', async (req, res) => {
             respuesta = validacion.respuesta;
             
             if (validacion.corregida) {
-                console.log('️ Respuesta corregida automáticamente por validación de lapsos');
+                console.log('🛡️ Respuesta corregida automáticamente por validación de lapsos');
             }
             
             respuesta = limpiarRespuesta(respuesta, articulos);
