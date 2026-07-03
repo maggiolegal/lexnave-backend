@@ -43,6 +43,8 @@ function normalizarTexto(texto) {
 }
 
 // ========== ARTÍCULOS CLAVE CON COINCIDENCIA COMPUESTA ==========
+// Términos unívocos: ['articulos'] -> Búsqueda directa
+// Términos genéricos: { tokens: ['clave', 'ctx1|ctx2'], articulos: [...] } -> Requiere contexto
 const FORZAR_ARTICULOS = {
     // ===== Código Penal (Ley 6) =====
     'hurto': ['451', '452', '453'], 'robo': ['455', '456', '457'], 
@@ -50,10 +52,12 @@ const FORZAR_ARTICULOS = {
     'estafa': ['461', '462'], 'corrupcion': ['60', '61', '62'], 
     'peculado': ['63', '64'], 'cohecho': ['67', '68'], 
     'secuestro': ['460'], 'extorsion': ['460'],
-    'pena': ['451', '455', '405', '406'], 'prision': ['451', '455', '405', '406'],
+    // Genérico: solo activa si hay delito específico
+    'pena': { tokens: ['pena', 'hurto|robo|homicidio|lesiones|estafa|delito'], articulos: ['451', '455', '405', '413', '461'] },
+    'prision': { tokens: ['prision', 'hurto|robo|homicidio|lesiones|estafa|delito'], articulos: ['451', '455', '405', '413', '461'] },
     
     // ===== Código Civil (Ley 3) =====
-    'prescripcion': ['1969', '1950', '1951', '1952'], 'plazo': ['1969'],
+    'prescripcion': ['1969', '1950', '1951', '1952'], 
     'divorcio': ['185', '186', '187'], 'separacion': ['185', '186', '187'],
     'matrimonio': ['82', '83', '84', '85', '86', '87', '88'],
     'paternidad': ['210', '211', '212', '215'], 'filiacion': ['210', '211', '212'],
@@ -68,15 +72,17 @@ const FORZAR_ARTICULOS = {
     'responsabilidad': ['1185', '1190'], 'daño': ['1185', '1190', '1810'],
     'propiedad': ['545', '546', '547'], 'posesion': ['771', '772', '773'],
     'usucapion': ['1977', '1978'],
+    // Genérico: solo activa si hay tema civil específico
+    'plazo': { tokens: ['plazo', 'prescripcion|divorcio|matrimonio|paternidad|alimentos|herencia|contrato|daños'], articulos: ['1969', '185', '82', '210', '282', '991', '1137', '1185'] },
     
-    // ===== CPC =====
+    // ===== CPC (Ley 7) =====
     'procedimiento oral': ['859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869'],
     'oral': ['859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869'],
     'lapsos': ['859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869'],
     'procedimiento breve': ['881', '882', '883', '884', '885', '886', '887', '888', '889', '890', '891', '892', '893', '894'],
     'breve': ['881', '882', '883', '884', '885', '886', '887', '888', '889', '890', '891', '892', '893', '894'],
     'intimacion': ['640', '641', '642'], 'cobro': ['640', '641', '642'],
-    'interdicto': ['782', '783', '784', '785'], 'posesion': ['782', '783', '784', '785'],
+    'interdicto': ['782', '783', '784', '785'], 'posesion_cpc': ['782', '783', '784', '785'],
     'demanda': ['340'], 'requisitos demanda': ['340'], 'libelo': ['340'],
     'citacion': ['218', '219', '220', '221', '222'], 'emplazamiento': ['218', '219', '220', '221', '222'],
     'contestacion': ['344', '345', '346'],
@@ -89,9 +95,12 @@ const FORZAR_ARTICULOS = {
     'ejecutivo': ['630', '631', '632', '633', '634', '635', '636', '637', '638', '639'],
     'medidas preventivas': ['585', '586', '587', '588', '589', '590'],
     'medidas cautelares': ['585', '586', '587', '588', '589', '590'],
-    'secuestro': ['585', '586', '587'],
+    'secuestro_cpc': ['585', '586', '587'],
+    // Genérico: solo activa si hay proceso civil específico
+    'juicio': { tokens: ['juicio', 'demanda|pruebas|sentencia|apelacion|embargo|intimacion|oral|breve'], articulos: ['340', '395', '243', '288', '585', '640', '859', '881'] },
+    'procedimiento': { tokens: ['procedimiento', 'demanda|pruebas|sentencia|apelacion|embargo|intimacion|oral|breve'], articulos: ['340', '395', '243', '288', '585', '640', '859', '881'] },
     
-    // ===== COPP =====
+    // ===== COPP (Ley 5) =====
     'flagrancia': ['373'], 'detencion': ['373', '374', '375'],
     'fianza': ['244', '245'], 'privacion libertad': ['236', '237', '238'],
     'libertad provisional': ['242', '243', '244'],
@@ -100,10 +109,13 @@ const FORZAR_ARTICULOS = {
     'audiencia preliminar': ['309', '310', '311', '312'],
     'procedimiento abreviado': ['372', '373'],
     'derecho defensa': ['8', '9', '10'], 'presuncion inocencia': ['8'],
-    'debido proceso penal': ['8', '9'], 'apelacion': ['438', '439'],
-    'casacion': ['443', '444', '445'],
+    'debido proceso penal': ['8', '9'], 'apelacion_copp': ['438', '439'],
+    'casacion_copp': ['443', '444', '445'],
+    // Genérico: solo activa si hay proceso penal específico
+    'fiscal': { tokens: ['fiscal', 'flagrancia|detencion|juicio oral|audiencia preliminar|acto conclusivo|fianza'], articulos: ['373', '295', '332', '309', '244'] },
+    'juez': { tokens: ['juez', 'flagrancia|detencion|juicio oral|audiencia preliminar|acto conclusivo|fianza'], articulos: ['373', '295', '332', '309', '244'] },
     
-    // ===== CRBV =====
+    // ===== CRBV (Ley 1) =====
     'derechos humanos': ['19', '20', '21', '22', '23'], 'derecho a la vida': ['43'],
     'derecho a la libertad': ['44', '45', '46'], 'debido proceso': ['49'],
     'derecho a la defensa': ['49'], 'libertad de expresion': ['57'],
@@ -122,7 +134,7 @@ const FORZAR_ARTICULOS = {
     'asamblea nacional': ['186', '187', '188', '189', '190', '191', '192', '193', '194', '195'],
     'tribunal supremo': ['253', '254', '255', '256', '257', '258', '259', '260', '261', '262'],
     'poder ciudadano': ['273', '274', '275', '276', '277', '278', '279', '280', '281'],
-    'fiscalia': ['284', '285', '286', '287', '288', '289', '290', '291', '292', '293'],
+    'fiscalia_cr': ['284', '285', '286', '287', '288', '289', '290', '291', '292', '293'],
     'contraloria': ['287', '288', '289', '290', '291', '292', '293'],
     'defensoria pueblo': ['280', '281', '282', '283'],
     'cne': ['292', '293', '294', '295', '296', '297', '298'],
@@ -131,7 +143,7 @@ const FORZAR_ARTICULOS = {
     'reforma constitucional': ['341', '342', '343', '344', '345', '346', '347', '348', '349', '350'],
     'enmienda': ['341', '342', '343', '344', '345'],
     
-    // ===== LPH (COINCIDENCIA COMPUESTA) =====
+    // ===== LPH (Ley 2) - Coincidencia Compuesta para evitar falsos positivos =====
     'vecino_lph': { 
         tokens: ['vecino', 'condominio|cuota|ascensor|junta|copropietario|cosas comunes'], 
         articulos: ['5', '7', '8', '9', '14'] 
@@ -144,9 +156,10 @@ const FORZAR_ARTICULOS = {
     'cosas comunes': ['5', '8', '11'], 'gastos comunes': ['11', '12', '13', '14'],
     'documento condominio': ['26', '27', '28', '29'],
     'sanciones': ['39', '40', '41', '42', '43', '44', '45', '46', '47'],
-    'ruido': ['3', '8'], 'molestias': ['3', '8'],
+    'ruido_lph': { tokens: ['ruido', 'condominio|vecino|junta|copropietario'], articulos: ['3', '8'] },
+    'molestias_lph': { tokens: ['molestias', 'condominio|vecino|junta|copropietario'], articulos: ['3', '8'] },
     
-    // ===== Comercio =====
+    // ===== Comercio (Ley 4) =====
     'letra cambio': ['410'], 'letra de cambio': ['410'], 'letras de cambio': ['410'],
     'requisitos letra': ['410'], 'pagare': ['410'], 'cheque': ['410'],
     'endoso': ['410', '411', '412'], 'aval': ['410', '411', '412'],
@@ -154,18 +167,18 @@ const FORZAR_ARTICULOS = {
     'sociedad anonima': ['200', '201', '202'], 'empresa': ['2', '5', '10'],
     'comerciante': ['2', '5', '10'], 'acto comercio': ['2', '5', '10'],
     
-    // ===== Violencia Mujer =====
+    // ===== Violencia Mujer (Ley 9) =====
     'violencia mujer': ['1', '2', '3', '4', '5'], 'violencia genero': ['1', '2', '3', '4', '5'],
     'violencia domestica': ['1', '2', '3', '4', '5'], 'medidas proteccion': ['1', '2', '3'],
     'violencia psicologica': ['1', '2', '3'], 'violencia fisica': ['1', '2', '3'],
     'violencia sexual': ['1', '2', '3'], 'violencia patrimonial': ['1', '2', '3'],
     'acoso sexual': ['1', '2', '3'],
     
-    // ===== Arrendamiento Vivienda =====
+    // ===== Arrendamiento Vivienda (Ley 8) =====
     'arrendamiento vivienda': ['1', '2', '3', '4', '5'], 'desalojo': ['20', '21', '22'],
     'canon': ['1', '2', '3'], 'contrato arrendamiento': ['1', '2', '3'],
     
-    // ===== Registros =====
+    // ===== Registros (Ley 11) =====
     'registro': ['1', '2', '3'], 'notaría': ['1', '2', '3'],
     'protocolizacion': ['1', '2', '3'], 'registro publico': ['1', '2', '3']
 };
@@ -220,7 +233,7 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
         const embedding = await generarEmbedding(pregunta);
         
         if (!embedding) {
-            console.log('📝 Embedding no disponible, usando búsqueda por texto');
+            console.log(' Embedding no disponible, usando búsqueda por texto');
             return buscarPorTexto(pregunta, leyId, limite);
         }
         
@@ -236,7 +249,7 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
             return buscarPorTexto(pregunta, leyId, limite);
         }
         
-        console.log(` Búsqueda vectorial: ${data?.length || 0} resultados`);
+        console.log(`🔍 Búsqueda vectorial: ${data?.length || 0} resultados`);
         
         return (data || []).map(art => ({
             id: art.id,
@@ -248,7 +261,7 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
         }));
         
     } catch (e) {
-        console.error('❌ Error en búsqueda vectorial:', e.message);
+        console.error(' Error en búsqueda vectorial:', e.message);
         return buscarPorTexto(pregunta, leyId, limite);
     }
 }
@@ -309,7 +322,7 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
                 similitud: 0.99
             };
         }
-        console.log(` Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
+        console.log(`❌ Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
         return null;
     } catch (e) {
         console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
@@ -375,7 +388,7 @@ async function clasificarConsulta(pregunta) {
         console.log(`📋 Clasificación: Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("️ Clasificación falló, usando fallback...");
+        console.warn("⚠️ Clasificación falló, usando fallback...");
         const lower = pregunta.toLowerCase();
         if (lower.includes('divorcio') || lower.includes('matrimonio') || lower.includes('hijo') || 
             lower.includes('herencia') || lower.includes('contrato') || lower.includes('accidente') ||
@@ -421,7 +434,7 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
                 });
                 
                 if (tieneContexto) {
-                    console.log(` Tema compuesto detectado: "${tema}"`);
+                    console.log(`🔑 Tema compuesto detectado: "${tema}"`);
                     coincide = true;
                 } else {
                     console.log(`⏭️ Palabra "${palabraClave}" sin contexto. Ignorando.`);
@@ -430,7 +443,7 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
         } else {
             const temaNormalizado = normalizarTexto(tema);
             if (preguntaNormalizada.includes(temaNormalizado)) {
-                console.log(` Tema simple detectado: "${tema}"`);
+                console.log(`🔑 Tema simple detectado: "${tema}"`);
                 coincide = true;
             }
         }
@@ -448,7 +461,7 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
                         articulosForzados.push(articulo);
                     }
                 } catch (err) {
-                    console.error(` Error buscando art. ${numArt}:`, err.message);
+                    console.error(`❌ Error buscando art. ${numArt}:`, err.message);
                 }
             }
             break;
@@ -485,7 +498,7 @@ function validarLapsosCriticos(respuesta) {
             if (lowerResp.includes(regla.contexto) || 
                 (regla.contexto === 'flagrancia' && (lowerResp.includes('detenido') || lowerResp.includes('copp')))) {
                 
-                console.log(`️ Corrección automática aplicada: "${regla.patron}" → "${regla.reemplazo}"`);
+                console.log(`🛡️ Corrección automática aplicada: "${regla.patron}" → "${regla.reemplazo}"`);
                 respuestaCorregida = respuestaCorregida.replace(regla.patron, regla.reemplazo);
                 huboCorreccion = true;
             }
@@ -640,7 +653,7 @@ app.post('/api/consultar', async (req, res) => {
                 return preguntaNorm.includes(normalizarTexto(tema));
             }
         })) {
-            console.log(`🔑 Modo Palabra Clave / Tema`);
+            console.log(` Modo Palabra Clave / Tema`);
             const clasificacion = await clasificarConsulta(pregunta);
             leyId = clasificacion.ley_id || 3;
             
@@ -688,7 +701,7 @@ app.post('/api/consultar', async (req, res) => {
             });
         }
 
-        console.log(`📚 Total: ${articulos.length} artículos encontrados`);
+        console.log(` Total: ${articulos.length} artículos encontrados`);
 
         let respuesta = await generarRespuesta(pregunta, articulos, leyId);
 
@@ -703,7 +716,7 @@ app.post('/api/consultar', async (req, res) => {
             respuesta = limpiarRespuesta(respuesta, articulos);
         }
 
-        res.json({ respuesta: respuesta || "️ No tengo información suficiente. Consulta con un abogado." });
+        res.json({ respuesta: respuesta || "⚠️ No tengo información suficiente. Consulta con un abogado." });
 
     } catch (error) {
         console.error(`❌ Error crítico:`, error);
