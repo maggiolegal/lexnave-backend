@@ -129,7 +129,6 @@ const FORZAR_ARTICULOS = {
     'documento condominio': ['26', '27', '28', '29'],
     'sanciones': ['39', '40', '41', '42', '43', '44', '45', '46', '47'],
     'ruido': ['3', '8'], 'molestias': ['3', '8'],
-    // SINÓNIMOS AGREGADOS PARA LETRA DE CAMBIO
     'letra cambio': ['410'], 'letra de cambio': ['410'], 'letras de cambio': ['410'],
     'requisitos letra': ['410'], 'pagare': ['410'], 'cheque': ['410'],
     'endoso': ['410', '411', '412'], 'aval': ['410', '411', '412'],
@@ -209,7 +208,7 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
         });
         
         if (error) {
-            console.error(' Error en búsqueda vectorial:', error);
+            console.error('❌ Error en búsqueda vectorial:', error);
             return buscarPorTexto(pregunta, leyId, limite);
         }
         
@@ -286,7 +285,7 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
                 similitud: 0.99
             };
         }
-        console.log(`❌ Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
+        console.log(` Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
         return null;
     } catch (e) {
         console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
@@ -294,9 +293,10 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     }
 }
 
-// ========== DETECTAR CONSULTA DIRECTA DE ARTÍCULO ==========
+// ========== DETECTAR CONSULTA DIRECTA DE ARTÍCULO (MEJORADO) ==========
 function detectarArticuloDirecto(pregunta) {
-    const regex = /art(?:ículo)?\.?\s*(\d+)(?:\s+(?:del|de la|del código|código)\s+(\w+))?/i;
+    // Regex mejorado: captura "articulo 1185", "art. 1185", "artículo 1185 del código civil", etc.
+    const regex = /(?:art(?:ículo)?\.?\s*)(\d+)(?:\s+(?:del|de la|del código|código)\s+(\w+(?:\s+\w+)*))?/i;
     const match = pregunta.match(regex);
     
     if (!match) return null;
@@ -347,10 +347,10 @@ async function clasificarConsulta(pregunta) {
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(`📋 Clasificación: Ley ${result.ley_id}`);
+        console.log(` Clasificación: Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("️ Clasificación falló, usando fallback...");
+        console.warn("⚠️ Clasificación falló, usando fallback...");
         const lower = pregunta.toLowerCase();
         if (lower.includes('divorcio') || lower.includes('matrimonio') || lower.includes('hijo') || 
             lower.includes('herencia') || lower.includes('contrato') || lower.includes('accidente') ||
@@ -376,7 +376,6 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     const preguntaNormalizada = normalizarTexto(pregunta);
     const articulosForzados = [];
     
-    // CORRECCIÓN: Usar coincidencia parcial normalizada en lugar de exacta
     for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
         const temaNormalizado = normalizarTexto(tema);
         if (preguntaNormalizada.includes(temaNormalizado)) {
@@ -395,7 +394,6 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     if (articulosForzados.length > 0) {
         const idsForzados = new Set(articulosForzados.map(a => a.id));
         const existentes = candidatos.filter(a => !idsForzados.has(a.id));
-        // PRIORIDAD: Artículos forzados SIEMPRE al inicio
         return [...articulosForzados, ...existentes];
     }
     
@@ -439,7 +437,6 @@ async function generarRespuesta(pregunta, articulos, leyId) {
     let contextoLegal = "";
     const numerosArticulos = [];
     
-    // Inyectar artículos forzados primero con etiqueta especial
     const forzados = mejores.filter(a => a.esForzado);
     const noForzados = mejores.filter(a => !a.esForzado);
     
@@ -459,7 +456,7 @@ async function generarRespuesta(pregunta, articulos, leyId) {
     const systemPrompt = `
 Eres "LexnaVe", un asistente jurídico venezolano.
 
-️ REGLA DE ORO:
+⚠️ REGLA DE ORO:
 1. SOLO puedes citar los artículos que están en el CONTEXTO.
 2. ${instruccion}
 3. NO inventes artículos ni lapsos. Si no encuentras, di "No tengo información suficiente".
@@ -536,7 +533,7 @@ app.post('/api/consultar', async (req, res) => {
     try {
         let leyId, articulos;
 
-        // MODO 1: ARTÍCULO DIRECTO
+        // MODO 1: ARTÍCULO DIRECTO (Regex mejorado)
         const articuloDirecto = detectarArticuloDirecto(pregunta);
         if (articuloDirecto) {
             console.log(`🎯 Modo Artículo Directo: Art. ${articuloDirecto.numero}`);
@@ -571,7 +568,7 @@ app.post('/api/consultar', async (req, res) => {
             articulos = [...articulos, ...vectoriales.filter(v => !idsExistentes.has(v.id))];
         }
         
-        // MODO 3: CASO / CONSULTA COMPLEJA (CON FORZADO INTEGRADO)
+        // MODO 3: CASO / CONSULTA COMPLEJA
         else {
             console.log(`💼 Modo Caso / Consulta Compleja`);
             const clasificacion = await clasificarConsulta(pregunta);
@@ -580,7 +577,6 @@ app.post('/api/consultar', async (req, res) => {
             console.log(`🔍 Buscando en ${LEY_MAP[leyId]}`);
             
             articulos = await buscarPorSimilitud(pregunta, leyId, 30);
-            // CORRECCIÓN: Forzar artículos incluso en Modo Caso
             articulos = await forzarArticulosClave(pregunta, articulos, leyId);
 
             // MODO 4: FALLBACK TRANSVERSAL
@@ -599,17 +595,16 @@ app.post('/api/consultar', async (req, res) => {
             });
         }
 
-        console.log(` Total: ${articulos.length} artículos encontrados`);
+        console.log(`📚 Total: ${articulos.length} artículos encontrados`);
 
         let respuesta = await generarRespuesta(pregunta, articulos, leyId);
 
         if (respuesta) {
-            // OPCION 3: Validación post-generación
             const validacion = validarLapsosCriticos(respuesta);
             respuesta = validacion.respuesta;
             
             if (validacion.corregida) {
-                console.log('️ Respuesta corregida automáticamente por validación de lapsos');
+                console.log('🛡️ Respuesta corregida automáticamente por validación de lapsos');
             }
             
             respuesta = limpiarRespuesta(respuesta, articulos);
@@ -628,7 +623,7 @@ app.post('/api/consultar', async (req, res) => {
 // ========== INICIO DEL SERVIDOR ==========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
-    console.log('🚀 LexnaVe Backend iniciando...');
+    console.log(' LexnaVe Backend iniciando...');
     await initEmbedder();
     console.log(`🚀 LexnaVe Backend activo en puerto ${PORT}`);
 });
