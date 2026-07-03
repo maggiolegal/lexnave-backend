@@ -236,7 +236,7 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
             return buscarPorTexto(pregunta, leyId, limite);
         }
         
-        console.log(`🔍 Búsqueda vectorial: ${data?.length || 0} resultados`);
+        console.log(` Búsqueda vectorial: ${data?.length || 0} resultados`);
         
         return (data || []).map(art => ({
             id: art.id,
@@ -271,7 +271,7 @@ async function buscarPorTexto(pregunta, leyId = null, limite = 30) {
             return [];
         }
         
-        console.log(` Búsqueda por texto: ${data?.length || 0} resultados`);
+        console.log(`📝 Búsqueda por texto: ${data?.length || 0} resultados`);
         
         return (data || []).map(art => ({
             id: art.id,
@@ -309,7 +309,7 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
                 similitud: 0.99
             };
         }
-        console.log(`❌ Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
+        console.log(` Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
         return null;
     } catch (e) {
         console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
@@ -396,11 +396,11 @@ async function clasificarConsulta(pregunta) {
     }
 }
 
-// ========== FORZAR ARTÍCULOS CON COINCIDENCIA COMPUESTA (BLINDADO) ==========
+// ========== FORZAR ARTÍCULOS CON COINCIDENCIA COMPUESTA (BLINDADO EXTREMO) ==========
 async function forzarArticulosClave(pregunta, candidatos, leyId) {
-    // BLINDAJE TOTAL: Garantizar que candidatos sea siempre un array
+    // BLINDAJE NIVEL 1: Validar entrada inmediatamente
     if (!Array.isArray(candidatos)) {
-        console.warn('⚠️ forzarArticulosClave recibió candidatos no válidos, usando array vacío');
+        console.warn(`⚠️ forzarArticulosClave recibió: ${typeof candidatos}. Usando []`);
         candidatos = [];
     }
 
@@ -421,10 +421,10 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
                 });
                 
                 if (tieneContexto) {
-                    console.log(`🔑 Tema compuesto detectado: "${tema}" (requiere contexto)`);
+                    console.log(` Tema compuesto detectado: "${tema}"`);
                     coincide = true;
                 } else {
-                    console.log(`️ Palabra "${palabraClave}" encontrada pero sin contexto requerido. Ignorando.`);
+                    console.log(`⏭️ Palabra "${palabraClave}" sin contexto. Ignorando.`);
                 }
             }
         } else {
@@ -437,11 +437,18 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
         
         if (coincide) {
             const articulos = typeof config === 'object' ? config.articulos : config;
+            // BLINDAJE NIVEL 2: Validar que articulos sea iterable
+            if (!Array.isArray(articulos)) continue;
+            
             for (const numArt of articulos) {
-                const articulo = await buscarArticuloPorNumero(leyId, numArt);
-                if (articulo) {
-                    articulo.esForzado = true; 
-                    articulosForzados.push(articulo);
+                try {
+                    const articulo = await buscarArticuloPorNumero(leyId, numArt);
+                    if (articulo) {
+                        articulo.esForzado = true; 
+                        articulosForzados.push(articulo);
+                    }
+                } catch (err) {
+                    console.error(` Error buscando art. ${numArt}:`, err.message);
                 }
             }
             break;
@@ -450,11 +457,14 @@ async function forzarArticulosClave(pregunta, candidatos, leyId) {
     
     if (articulosForzados.length > 0) {
         const idsForzados = new Set(articulosForzados.map(a => a.id));
-        const existentes = candidatos.filter(a => !idsForzados.has(a.id));
+        // BLINDAJE NIVEL 3: Validar candidatos antes de filtrar
+        const existentes = Array.isArray(candidatos) 
+            ? candidatos.filter(a => !idsForzados.has(a.id)) 
+            : [];
         return [...articulosForzados, ...existentes];
     }
     
-    return candidatos;
+    return Array.isArray(candidatos) ? candidatos : [];
 }
 
 // ========== VALIDACIÓN POST-GENERACIÓN POR REGEX ==========
@@ -572,7 +582,7 @@ function limpiarRespuesta(respuesta, articulos) {
     const invalidos = articulosMencionados.filter(a => !idsContexto.includes(a));
     
     if (invalidos.length > 0) {
-        console.log(`️ Artículos alucinados: ${invalidos.join(', ')}`);
+        console.log(`⚠️ Artículos alucinados: ${invalidos.join(', ')}`);
         const numeros = articulos.slice(0, 3).map(a => a.numero_articulo).join(', ');
         return `Según el Código Civil, los artículos relevantes son: ${numeros}. Consulta con un abogado.`;
     }
@@ -612,7 +622,7 @@ app.post('/api/consultar', async (req, res) => {
             }
         } 
         
-        // MODO 2: PALABRA CLAVE / TEMA (BLINDADO)
+        // MODO 2: PALABRA CLAVE / TEMA (BLINDADO TOTAL)
         else if (Object.keys(FORZAR_ARTICULOS).some(tema => {
             const config = FORZAR_ARTICULOS[tema];
             const preguntaNorm = normalizarTexto(pregunta);
@@ -634,17 +644,17 @@ app.post('/api/consultar', async (req, res) => {
             const clasificacion = await clasificarConsulta(pregunta);
             leyId = clasificacion.ley_id || 3;
             
-            // BLINDAJE: Inicialización explícita y segura
-            let candidatosIniciales = [];
+            // BLINDAJE: Inicialización explícita + Try-Catch + Validación Post
+            let candidatosSeguros = [];
             try {
-                candidatosIniciales = await forzarArticulosClave(pregunta, [], leyId);
+                candidatosSeguros = await forzarArticulosClave(pregunta, [], leyId);
             } catch (err) {
-                console.error('❌ Error en forzarArticulosClave:', err);
-                candidatosIniciales = [];
+                console.error('❌ Fallo crítico en forzarArticulosClave:', err);
+                candidatosSeguros = [];
             }
             
-            // Garantizar que articulos sea array antes de operar
-            articulos = Array.isArray(candidatosIniciales) ? candidatosIniciales : [];
+            // GARANTÍA MATEMÁTICA: articulos SIEMPRE es array
+            articulos = Array.isArray(candidatosSeguros) ? candidatosSeguros : [];
             
             const vectoriales = await buscarPorSimilitud(pregunta, leyId, 20);
             const idsExistentes = new Set(articulos.map(a => a.id));
@@ -693,7 +703,7 @@ app.post('/api/consultar', async (req, res) => {
             respuesta = limpiarRespuesta(respuesta, articulos);
         }
 
-        res.json({ respuesta: respuesta || "⚠️ No tengo información suficiente. Consulta con un abogado." });
+        res.json({ respuesta: respuesta || "️ No tengo información suficiente. Consulta con un abogado." });
 
     } catch (error) {
         console.error(`❌ Error crítico:`, error);
