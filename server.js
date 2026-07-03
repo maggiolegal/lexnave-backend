@@ -45,44 +45,28 @@ function normalizarTexto(texto) {
 // ========== ARTÍCULOS CLAVE POR TEMA ==========
 const FORZAR_ARTICULOS = {
     // ===== Código Penal (Ley 6) =====
-    'hurto': ['451', '452', '453'],
-    'robo': ['455', '456', '457'],
-    'homicidio': ['405', '406', '409'],
-    'lesiones': ['413', '414', '415'],
-    'estafa': ['461', '462'],
-    'corrupcion': ['60', '61', '62'],
-    'peculado': ['63', '64'],
-    'cohecho': ['67', '68'],
-    'secuestro': ['460'],
-    'extorsion': ['460'],
-    'pena': ['451', '455', '405', '406'],
-    'prision': ['451', '455', '405', '406'],
+    'hurto': ['451', '452', '453'], 'robo': ['455', '456', '457'], 
+    'homicidio': ['405', '406', '409'], 'lesiones': ['413', '414', '415'], 
+    'estafa': ['461', '462'], 'corrupcion': ['60', '61', '62'], 
+    'peculado': ['63', '64'], 'cohecho': ['67', '68'], 
+    'secuestro': ['460'], 'extorsion': ['460'],
+    'pena': ['451', '455', '405', '406'], 'prision': ['451', '455', '405', '406'],
     
     // ===== Código Civil (Ley 3) =====
-    'prescripcion': ['1969', '1950', '1951', '1952'],
-    'plazo': ['1969'],
-    'divorcio': ['185', '186', '187'],
-    'separacion': ['185', '186', '187'],
+    'prescripcion': ['1969', '1950', '1951', '1952'], 'plazo': ['1969'],
+    'divorcio': ['185', '186', '187'], 'separacion': ['185', '186', '187'],
     'matrimonio': ['82', '83', '84', '85', '86', '87', '88'],
-    'paternidad': ['210', '211', '212', '215'],
-    'filiacion': ['210', '211', '212'],
+    'paternidad': ['210', '211', '212', '215'], 'filiacion': ['210', '211', '212'],
     'alimentos': ['282', '283', '284'],
-    'herencia': ['991', '992', '993', '994'],
-    'testamento': ['991', '992', '993', '994'],
+    'herencia': ['991', '992', '993', '994'], 'testamento': ['991', '992', '993', '994'], 
     'sucesion': ['991', '992', '993', '994'],
     'servidumbre': ['571', '572', '573', '574', '575', '576', '577'],
-    'luz natural': ['571', '572', '573', '574'],
-    'muro': ['571', '572', '573'],
-    'contrato': ['1137', '1140', '1145'],
-    'arrendamiento': ['1576', '1577', '1578'],
-    'accidente': ['1185', '1190', '1810'],
-    'choque': ['1185', '1190', '1810'],
-    'daños': ['1185', '1190', '1810', '1969'],
-    'perjuicios': ['1185', '1190', '1810', '1969'],
-    'responsabilidad': ['1185', '1190'],
-    'daño': ['1185', '1190', '1810'],
-    'propiedad': ['545', '546', '547'],
-    'posesion': ['771', '772', '773'],
+    'luz natural': ['571', '572', '573', '574'], 'muro': ['571', '572', '573'],
+    'contrato': ['1137', '1140', '1145'], 'arrendamiento': ['1576', '1577', '1578'],
+    'accidente': ['1185', '1190', '1810'], 'choque': ['1185', '1190', '1810'],
+    'daños': ['1185', '1190', '1810', '1969'], 'perjuicios': ['1185', '1190', '1810', '1969'],
+    'responsabilidad': ['1185', '1190'], 'daño': ['1185', '1190', '1810'],
+    'propiedad': ['545', '546', '547'], 'posesion': ['771', '772', '773'],
     'usucapion': ['1977', '1978'],
     
     // ===== CPC =====
@@ -91,23 +75,15 @@ const FORZAR_ARTICULOS = {
     'lapsos': ['859', '860', '861', '862', '863', '864', '865', '866', '867', '868', '869'],
     'procedimiento breve': ['881', '882', '883', '884', '885', '886', '887', '888', '889', '890', '891', '892', '893', '894'],
     'breve': ['881', '882', '883', '884', '885', '886', '887', '888', '889', '890', '891', '892', '893', '894'],
-    'intimacion': ['640', '641', '642'],
-    'cobro': ['640', '641', '642'],
-    'interdicto': ['782', '783', '784', '785'],
-    'posesion': ['782', '783', '784', '785'],
-    'demanda': ['340'],
-    'requisitos demanda': ['340'],
-    'libelo': ['340'],
-    'citacion': ['218', '219', '220', '221', '222'],
-    'emplazamiento': ['218', '219', '220', '221', '222'],
+    'intimacion': ['640', '641', '642'], 'cobro': ['640', '641', '642'],
+    'interdicto': ['782', '783', '784', '785'], 'posesion': ['782', '783', '784', '785'],
+    'demanda': ['340'], 'requisitos demanda': ['340'], 'libelo': ['340'],
+    'citacion': ['218', '219', '220', '221', '222'], 'emplazamiento': ['218', '219', '220', '221', '222'],
     'contestacion': ['344', '345', '346'],
-    'pruebas': ['395', '396', '397', '398', '399', '400'],
-    'lapso probatorio': ['395', '396', '397'],
+    'pruebas': ['395', '396', '397', '398', '399', '400'], 'lapso probatorio': ['395', '396', '397'],
     'testigos': ['478', '479', '480', '481', '482', '483'],
-    'sentencia': ['243', '244', '245'],
-    'ejecucion': ['523', '524', '525', '526'],
-    'embargo': ['585', '586', '587'],
-    'apelacion': ['288', '289', '290', '291'],
+    'sentencia': ['243', '244', '245'], 'ejecucion': ['523', '524', '525', '526'],
+    'embargo': ['585', '586', '587'], 'apelacion': ['288', '289', '290', '291'],
     'casacion': ['312', '313'],
     'via ejecutiva': ['630', '631', '632', '633', '634', '635', '636', '637', '638', '639'],
     'ejecutivo': ['630', '631', '632', '633', '634', '635', '636', '637', '638', '639'],
@@ -116,49 +92,32 @@ const FORZAR_ARTICULOS = {
     'secuestro': ['585', '586', '587'],
     
     // ===== COPP =====
-    'flagrancia': ['373'],
-    'detencion': ['373', '374', '375'],
-    'fianza': ['244', '245'],
-    'medidas cautelares': ['236', '237', '238'],
-    'privacion libertad': ['236', '237', '238'],
-    'libertad provisional': ['242', '243', '244'],
-    'presentacion juez': ['373'],
-    'acto conclusivo': ['295'],
+    'flagrancia': ['373'], 'detencion': ['373', '374', '375'],
+    'fianza': ['244', '245'], 'medidas cautelares': ['236', '237', '238'],
+    'privacion libertad': ['236', '237', '238'], 'libertad provisional': ['242', '243', '244'],
+    'presentacion juez': ['373'], 'acto conclusivo': ['295'],
     'juicio oral': ['332', '333', '334', '335', '336', '337', '338'],
     'audiencia preliminar': ['309', '310', '311', '312'],
     'procedimiento abreviado': ['372', '373'],
-    'derecho defensa': ['8', '9', '10'],
-    'presuncion inocencia': ['8'],
-    'debido proceso penal': ['8', '9'],
-    'apelacion': ['438', '439'],
+    'derecho defensa': ['8', '9', '10'], 'presuncion inocencia': ['8'],
+    'debido proceso penal': ['8', '9'], 'apelacion': ['438', '439'],
     'casacion': ['443', '444', '445'],
     
     // ===== CRBV =====
-    'derechos humanos': ['19', '20', '21', '22', '23'],
-    'derecho a la vida': ['43'],
-    'derecho a la libertad': ['44', '45', '46'],
-    'debido proceso': ['49'],
-    'derecho a la defensa': ['49'],
-    'libertad de expresion': ['57'],
+    'derechos humanos': ['19', '20', '21', '22', '23'], 'derecho a la vida': ['43'],
+    'derecho a la libertad': ['44', '45', '46'], 'debido proceso': ['49'],
+    'derecho a la defensa': ['49'], 'libertad de expresion': ['57'],
     'libertad de transito': ['50'],
     'derecho al trabajo': ['87', '88', '89', '90', '91', '92'],
-    'derecho a la salud': ['83', '84'],
-    'derecho a la educacion': ['102', '103', '104'],
-    'derecho a la vivienda': ['82'],
-    'derecho a la seguridad social': ['86'],
-    'derecho al ambiente': ['127'],
-    'amparo': ['26', '27', '49'],
-    'habeas corpus': ['27'],
-    'derecho a la propiedad': ['115'],
+    'derecho a la salud': ['83', '84'], 'derecho a la educacion': ['102', '103', '104'],
+    'derecho a la vivienda': ['82'], 'derecho a la seguridad social': ['86'],
+    'derecho al ambiente': ['127'], 'amparo': ['26', '27', '49'],
+    'habeas corpus': ['27'], 'derecho a la propiedad': ['115'],
     'derecho a la familia': ['75', '76', '77', '78', '79', '80', '81'],
-    'derecho de los niños': ['78', '79'],
-    'derecho de los adultos mayores': ['80'],
-    'derecho de las personas con discapacidad': ['81'],
-    'derecho a la mujer': ['88', '89'],
-    'seguridad de la nacion': ['322'],
-    'estado de excepcion': ['337', '338', '339'],
-    'control constitucional': ['334', '335', '336'],
-    'inconstitucionalidad': ['334', '335', '336'],
+    'derecho de los niños': ['78', '79'], 'derecho de los adultos mayores': ['80'],
+    'derecho de las personas con discapacidad': ['81'], 'derecho a la mujer': ['88', '89'],
+    'seguridad de la nacion': ['322'], 'estado de excepcion': ['337', '338', '339'],
+    'control constitucional': ['334', '335', '336'], 'inconstitucionalidad': ['334', '335', '336'],
     'presidente': ['226', '227', '228', '229', '230', '231', '232', '233', '234', '235', '236'],
     'asamblea nacional': ['186', '187', '188', '189', '190', '191', '192', '193', '194', '195'],
     'tribunal supremo': ['253', '254', '255', '256', '257', '258', '259', '260', '261', '262'],
@@ -173,55 +132,36 @@ const FORZAR_ARTICULOS = {
     'enmienda': ['341', '342', '343', '344', '345'],
     
     // ===== LPH =====
-    'propiedad horizontal': ['5', '7', '8', '9', '14'],
-    'condominio': ['5', '7', '8', '9', '14'],
-    'vecino': ['5', '7', '8', '9', '14'],
-    'cuotas mantenimiento': ['14', '7', '5'],
-    'administrador': ['18', '19', '20', '21'],
-    'junta condominio': ['18', '19'],
+    'propiedad horizontal': ['5', '7', '8', '9', '14'], 'condominio': ['5', '7', '8', '9', '14'],
+    'vecino': ['5', '7', '8', '9', '14'], 'cuotas mantenimiento': ['14', '7', '5'],
+    'administrador': ['18', '19', '20', '21'], 'junta condominio': ['18', '19'],
     'asamblea copropietarios': ['18', '19', '22', '23', '24'],
-    'cosas comunes': ['5', '8', '11'],
-    'gastos comunes': ['11', '12', '13', '14'],
+    'cosas comunes': ['5', '8', '11'], 'gastos comunes': ['11', '12', '13', '14'],
     'documento condominio': ['26', '27', '28', '29'],
     'sanciones': ['39', '40', '41', '42', '43', '44', '45', '46', '47'],
-    'ruido': ['3', '8'],
-    'molestias': ['3', '8'],
+    'ruido': ['3', '8'], 'molestias': ['3', '8'],
     
     // ===== Comercio =====
-    'letra cambio': ['410'],
-    'pagare': ['410'],
-    'cheque': ['410'],
-    'endoso': ['410', '411', '412'],
-    'aval': ['410', '411', '412'],
-    'protesto': ['413', '414'],
-    'sociedad mercantil': ['200', '201', '202'],
-    'sociedad anonima': ['200', '201', '202'],
-    'empresa': ['2', '5', '10'],
-    'comerciante': ['2', '5', '10'],
-    'acto comercio': ['2', '5', '10'],
+    'letra cambio': ['410'], 'pagare': ['410'], 'cheque': ['410'],
+    'endoso': ['410', '411', '412'], 'aval': ['410', '411', '412'],
+    'protesto': ['413', '414'], 'sociedad mercantil': ['200', '201', '202'],
+    'sociedad anonima': ['200', '201', '202'], 'empresa': ['2', '5', '10'],
+    'comerciante': ['2', '5', '10'], 'acto comercio': ['2', '5', '10'],
     
     // ===== Violencia Mujer =====
-    'violencia mujer': ['1', '2', '3', '4', '5'],
-    'violencia genero': ['1', '2', '3', '4', '5'],
-    'violencia domestica': ['1', '2', '3', '4', '5'],
-    'medidas proteccion': ['1', '2', '3'],
-    'violencia psicologica': ['1', '2', '3'],
-    'violencia fisica': ['1', '2', '3'],
-    'violencia sexual': ['1', '2', '3'],
-    'violencia patrimonial': ['1', '2', '3'],
+    'violencia mujer': ['1', '2', '3', '4', '5'], 'violencia genero': ['1', '2', '3', '4', '5'],
+    'violencia domestica': ['1', '2', '3', '4', '5'], 'medidas proteccion': ['1', '2', '3'],
+    'violencia psicologica': ['1', '2', '3'], 'violencia fisica': ['1', '2', '3'],
+    'violencia sexual': ['1', '2', '3'], 'violencia patrimonial': ['1', '2', '3'],
     'acoso sexual': ['1', '2', '3'],
     
     // ===== Arrendamiento Vivienda =====
-    'arrendamiento vivienda': ['1', '2', '3', '4', '5'],
-    'desalojo': ['20', '21', '22'],
-    'canon': ['1', '2', '3'],
-    'contrato arrendamiento': ['1', '2', '3'],
+    'arrendamiento vivienda': ['1', '2', '3', '4', '5'], 'desalojo': ['20', '21', '22'],
+    'canon': ['1', '2', '3'], 'contrato arrendamiento': ['1', '2', '3'],
     
     // ===== Registros =====
-    'registro': ['1', '2', '3'],
-    'notaría': ['1', '2', '3'],
-    'protocolizacion': ['1', '2', '3'],
-    'registro publico': ['1', '2', '3']
+    'registro': ['1', '2', '3'], 'notaría': ['1', '2', '3'],
+    'protocolizacion': ['1', '2', '3'], 'registro publico': ['1', '2', '3']
 };
 
 // ========== MODELO DE EMBEDDING ==========
@@ -263,94 +203,19 @@ async function generarEmbedding(texto) {
         console.log(`✅ Embedding generado: ${embedding.length} dimensiones`);
         return embedding;
     } catch (error) {
-        console.error('❌ Error generando embedding:', error.message);
+        console.error(' Error generando embedding:', error.message);
         return null;
     }
 }
 
-// ========== BÚSQUEDA POR NÚMERO DE ARTÍCULO (EXACTO) ==========
-async function buscarPorNumeroArticulo(leyId, numeroArticulo) {
-    try {
-        // Limpiar el número de artículo (quitar "Artículo", puntos, etc.)
-        const numLimpio = numeroArticulo.toString().replace(/[^0-9]/g, '');
-        
-        const { data, error } = await supabase
-            .from('articulos')
-            .select('id, numero_articulo, contenido, ley_id')
-            .eq('ley_id', parseInt(leyId))
-            .ilike('numero_articulo', `%${numLimpio}%`)
-            .maybeSingle();
-        
-        if (data && !error) {
-            console.log(`✅ Búsqueda por número: Artículo ${numLimpio} encontrado`);
-            return [{
-                id: data.id,
-                numero_articulo: data.numero_articulo,
-                contenido: data.contenido,
-                ley_id: data.ley_id,
-                ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
-                similitud: 1.0
-            }];
-        }
-        return null;
-    } catch (e) {
-        console.error('Error en búsqueda por número:', e);
-        return null;
-    }
-}
-
-// ========== BÚSQUEDA POR TEXTO COMPLETO (ILINE) ==========
-async function buscarPorTextoCompleto(pregunta, leyId = null, limite = 30) {
-    try {
-        const query = supabase
-            .from('articulos')
-            .select('id, numero_articulo, contenido, ley_id');
-        
-        if (leyId) {
-            query.eq('ley_id', parseInt(leyId));
-        }
-        
-        // Usar tsquery para búsqueda de texto completo en PostgreSQL
-        const palabras = pregunta.split(' ').filter(p => p.length > 3).slice(0, 5).join(' & ');
-        
-        if (palabras.length > 0) {
-            const { data, error } = await query.textSearch('contenido', palabras, {
-                type: 'websearch',
-                config: 'spanish'
-            }).limit(limite);
-            
-            if (error) {
-                console.error('Error en búsqueda de texto completo:', error);
-                return null;
-            }
-            
-            if (data && data.length > 0) {
-                console.log(`✅ Búsqueda de texto completo: ${data.length} resultados`);
-                return data.map(art => ({
-                    id: art.id,
-                    numero_articulo: art.numero_articulo,
-                    contenido: art.contenido,
-                    ley_id: art.ley_id,
-                    ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
-                    similitud: 0.8
-                }));
-            }
-        }
-        return null;
-    } catch (e) {
-        console.error('Error en búsqueda de texto completo:', e);
-        return null;
-    }
-}
-
-// ========== BÚSQUEDA POR SIMILITUD (VECTORIAL) ==========
+// ========== BUSCAR POR SIMILITUD ==========
 async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
     try {
         const embedding = await generarEmbedding(pregunta);
         
         if (!embedding) {
-            console.log('📝 Embedding no disponible');
-            return null;
+            console.log('📝 Embedding no disponible, usando búsqueda por texto');
+            return buscarPorTexto(pregunta, leyId, limite);
         }
         
         const { data, error } = await supabase.rpc('match_articles', {
@@ -362,10 +227,10 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
         
         if (error) {
             console.error('❌ Error en búsqueda vectorial:', error);
-            return null;
+            return buscarPorTexto(pregunta, leyId, limite);
         }
         
-        console.log(`✅ Búsqueda vectorial: ${data?.length || 0} resultados`);
+        console.log(`🔍 Búsqueda vectorial: ${data?.length || 0} resultados`);
         
         return (data || []).map(art => ({
             id: art.id,
@@ -378,89 +243,94 @@ async function buscarPorSimilitud(pregunta, leyId = null, limite = 30) {
         
     } catch (e) {
         console.error('❌ Error en búsqueda vectorial:', e.message);
+        return buscarPorTexto(pregunta, leyId, limite);
+    }
+}
+
+// ========== BÚSQUEDA POR TEXTO ==========
+async function buscarPorTexto(pregunta, leyId = null, limite = 30) {
+    try {
+        const query = supabase
+            .from('articulos')
+            .select('id, numero_articulo, contenido, ley_id');
+        
+        if (leyId) {
+            query.eq('ley_id', parseInt(leyId));
+        }
+        
+        const { data, error } = await query.limit(limite);
+        
+        if (error) {
+            console.error('❌ Error en búsqueda por texto:', error);
+            return [];
+        }
+        
+        console.log(`📝 Búsqueda por texto: ${data?.length || 0} resultados`);
+        
+        return (data || []).map(art => ({
+            id: art.id,
+            numero_articulo: art.numero_articulo,
+            contenido: art.contenido,
+            ley_id: art.ley_id,
+            ley_nombre: LEY_MAP[art.ley_id] || 'Ley',
+            similitud: 0
+        }));
+        
+    } catch (e) {
+        console.error(' Error en búsqueda por texto:', e.message);
+        return [];
+    }
+}
+
+// ========== BUSCAR ARTÍCULO POR NÚMERO ==========
+async function buscarArticuloPorNumero(leyId, numeroArticulo) {
+    try {
+        const { data, error } = await supabase
+            .from('articulos')
+            .select('id, numero_articulo, contenido, ley_id')
+            .eq('ley_id', parseInt(leyId))
+            .ilike('numero_articulo', `%${numeroArticulo}%`)
+            .maybeSingle();
+        
+        if (data && !error) {
+            console.log(`✅ Artículo ${numeroArticulo} encontrado: "${data.numero_articulo}"`);
+            return {
+                id: data.id,
+                numero_articulo: data.numero_articulo,
+                contenido: data.contenido,
+                ley_id: data.ley_id,
+                ley_nombre: LEY_MAP[data.ley_id] || 'Ley',
+                similitud: 0.99
+            };
+        }
+        console.log(`❌ Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
+        return null;
+    } catch (e) {
+        console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
         return null;
     }
 }
 
-// ========== BÚSQUEDA HÍBRIDA (COMBINADA) ==========
-async function buscarArticulos(pregunta, leyId = null) {
-    let resultados = [];
-    let idsExistentes = new Set();
+// ========== DETECTAR CONSULTA DIRECTA DE ARTÍCULO ==========
+function detectarArticuloDirecto(pregunta) {
+    const regex = /art(?:ículo)?\.?\s*(\d+)(?:\s+(?:del|de la|del código|código)\s+(\w+))?/i;
+    const match = pregunta.match(regex);
     
-    console.log(`🔍 Búsqueda híbrida para: "${pregunta}"`);
+    if (!match) return null;
     
-    // === ESTRATEGIA 1: BÚSQUEDA POR NÚMERO DE ARTÍCULO ===
-    // Detectar números en la pregunta
-    const numeros = pregunta.match(/\b\d{1,4}\b/g);
-    if (numeros) {
-        for (const num of numeros) {
-            if (num.length > 2) { // Ignorar números pequeños como "1", "2"
-                const resultado = await buscarPorNumeroArticulo(leyId || 3, num);
-                if (resultado && resultado.length > 0) {
-                    const ids = resultado.map(a => a.id);
-                    for (const art of resultado) {
-                        if (!idsExistentes.has(art.id)) {
-                            resultados.push(art);
-                            idsExistentes.add(art.id);
-                        }
-                    }
-                    console.log(`📌 Artículo ${num} encontrado por número exacto`);
-                }
-            }
-        }
-    }
+    const numero = match[1];
+    const leyMencionada = match[2]?.toLowerCase() || '';
     
-    // === ESTRATEGIA 2: BÚSQUEDA POR TEXTO COMPLETO ===
-    if (resultados.length < 5) {
-        const textoResultado = await buscarPorTextoCompleto(pregunta, leyId, 20);
-        if (textoResultado) {
-            for (const art of textoResultado) {
-                if (!idsExistentes.has(art.id)) {
-                    resultados.push(art);
-                    idsExistentes.add(art.id);
-                }
-            }
-        }
-    }
+    let leyId = null;
+    if (leyMencionada.includes('civil')) leyId = 3;
+    else if (leyMencionada.includes('penal') && !leyMencionada.includes('orgánico')) leyId = 6;
+    else if (leyMencionada.includes('procesal') || leyMencionada.includes('copp')) leyId = 5;
+    else if (leyMencionada.includes('procedimiento') || leyMencionada.includes('cpc')) leyId = 7;
+    else if (leyMencionada.includes('constitución') || leyMencionada.includes('crbv')) leyId = 1;
+    else if (leyMencionada.includes('comercio')) leyId = 4;
+    else if (leyMencionada.includes('propiedad horizontal') || leyMencionada.includes('lph')) leyId = 2;
     
-    // === ESTRATEGIA 3: BÚSQUEDA VECTORIAL (SIMILITUD) ===
-    if (resultados.length < 10) {
-        const vectorResultado = await buscarPorSimilitud(pregunta, leyId, 30);
-        if (vectorResultado) {
-            for (const art of vectorResultado) {
-                if (!idsExistentes.has(art.id)) {
-                    resultados.push(art);
-                    idsExistentes.add(art.id);
-                }
-            }
-        }
-    }
-    
-    // === ESTRATEGIA 4: FORZAR ARTÍCULOS POR TEMA (FALLBACK) ===
-    if (resultados.length < 5) {
-        const preguntaNormalizada = normalizarTexto(pregunta);
-        for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
-            const temaNormalizado = normalizarTexto(tema);
-            if (preguntaNormalizada.includes(temaNormalizado)) {
-                console.log(`🔑 Tema detectado (fallback): "${tema}"`);
-                for (const numArt of articulos) {
-                    const art = await buscarPorNumeroArticulo(leyId || 3, numArt);
-                    if (art && art.length > 0) {
-                        for (const a of art) {
-                            if (!idsExistentes.has(a.id)) {
-                                resultados.push(a);
-                                idsExistentes.add(a.id);
-                            }
-                        }
-                    }
-                }
-                break;
-            }
-        }
-    }
-    
-    console.log(`📚 Total artículos encontrados: ${resultados.length}`);
-    return resultados.slice(0, 30);
+    return { numero, leyId };
 }
 
 // ========== CLASIFICACIÓN ==========
@@ -497,7 +367,7 @@ async function clasificarConsulta(pregunta) {
         console.log(`📋 Clasificación: Ley ${result.ley_id}`);
         return result;
     } catch (error) {
-        console.warn("⚠️ Clasificación falló, usando fallback...");
+        console.warn("️ Clasificación falló, usando fallback...");
         const lower = pregunta.toLowerCase();
         if (lower.includes('divorcio') || lower.includes('matrimonio') || lower.includes('hijo') || 
             lower.includes('herencia') || lower.includes('contrato') || lower.includes('accidente') ||
@@ -516,6 +386,34 @@ async function clasificarConsulta(pregunta) {
         if (lower.includes('registro') || lower.includes('notaría')) return { ley_id: 11 };
         return { ley_id: 3 };
     }
+}
+
+// ========== FORZAR ARTÍCULOS ==========
+async function forzarArticulosClave(pregunta, candidatos, leyId) {
+    const preguntaNormalizada = normalizarTexto(pregunta);
+    const articulosForzados = [];
+    
+    for (const [tema, articulos] of Object.entries(FORZAR_ARTICULOS)) {
+        const temaNormalizado = normalizarTexto(tema);
+        if (preguntaNormalizada.includes(temaNormalizado)) {
+            console.log(`🔑 Tema detectado: "${tema}"`);
+            for (const numArt of articulos) {
+                const articulo = await buscarArticuloPorNumero(leyId, numArt);
+                if (articulo) {
+                    articulosForzados.push(articulo);
+                }
+            }
+            break;
+        }
+    }
+    
+    if (articulosForzados.length > 0) {
+        const idsForzados = new Set(articulosForzados.map(a => a.id));
+        const existentes = candidatos.filter(a => !idsForzados.has(a.id));
+        return [...articulosForzados, ...existentes];
+    }
+    
+    return candidatos;
 }
 
 // ========== GENERAR RESPUESTA ==========
@@ -604,44 +502,90 @@ function limpiarRespuesta(respuesta, articulos) {
         console.log(`⚠️ Artículos alucinados: ${invalidos.join(', ')}`);
         console.log(`📚 Artículos disponibles: ${idsContexto.join(', ')}`);
         
+        // Si hay alucinaciones, construir respuesta fallback con los artículos correctos
         const numeros = articulos.slice(0, 3).map(a => a.numero_articulo).join(', ');
-        return `Según el ${LEY_MAP[articulos[0]?.ley_id] || 'Código'}, los artículos relevantes son: ${numeros}. Consulta con un abogado para un análisis detallado.`;
+        return `Según el Código Civil, los artículos relevantes son: ${numeros}. Consulta con un abogado para un análisis detallado.`;
     }
     
     console.log(`✅ Artículos citados existen en el contexto`);
     return respuesta;
 }
 
-// ========== ENDPOINT PRINCIPAL ==========
+// ========== ENDPOINT PRINCIPAL CON BÚSQUEDA MULTIMODAL ==========
 app.post('/api/consultar', async (req, res) => {
     const { pregunta } = req.body;
     const timestamp = new Date().toISOString();
     console.log(`${timestamp} 📨 Pregunta: ${pregunta}`);
 
     try {
-        const clasificacion = await clasificarConsulta(pregunta);
-        let leyId = clasificacion.ley_id || 3;
+        let leyId, articulos;
 
-        console.log(`🔍 Buscando en ${LEY_MAP[leyId]}`);
+        // MODO 1: BÚSQUEDA POR ARTÍCULO DIRECTO
+        const articuloDirecto = detectarArticuloDirecto(pregunta);
+        if (articuloDirecto) {
+            console.log(`🎯 Modo Artículo Directo: Art. ${articuloDirecto.numero}`);
+            leyId = articuloDirecto.leyId || 3;
+            
+            const artEncontrado = await buscarArticuloPorNumero(leyId, articuloDirecto.numero);
+            if (artEncontrado) {
+                articulos = [artEncontrado];
+            } else {
+                // Fallback transversal si no está en la ley detectada
+                console.log(`🔄 Art. no encontrado en ley ${leyId}, búsqueda transversal...`);
+                for (const id of [3, 7, 5, 6, 1, 4, 2, 8, 9, 10, 11]) {
+                    const art = await buscarArticuloPorNumero(id, articuloDirecto.numero);
+                    if (art) {
+                        articulos = [art];
+                        leyId = id;
+                        break;
+                    }
+                }
+            }
+        } 
         
-        // ===== BÚSQUEDA HÍBRIDA COMPLETA =====
-        let articulos = await buscarArticulos(pregunta, leyId);
+        // MODO 2: BÚSQUEDA POR PALABRA CLAVE / TEMA ESPECÍFICO
+        else if (Object.keys(FORZAR_ARTICULOS).some(tema => normalizarTexto(pregunta).includes(normalizarTexto(tema)))) {
+            console.log(`🔑 Modo Palabra Clave / Tema`);
+            const clasificacion = await clasificarConsulta(pregunta);
+            leyId = clasificacion.ley_id || 3;
+            
+            // Primero forzamos los artículos clave
+            articulos = await forzarArticulosClave(pregunta, [], leyId);
+            
+            // Luego complementamos con búsqueda vectorial
+            const vectoriales = await buscarPorSimilitud(pregunta, leyId, 20);
+            const idsExistentes = new Set(articulos.map(a => a.id));
+            articulos = [...articulos, ...vectoriales.filter(v => !idsExistentes.has(v.id))];
+        }
+        
+        // MODO 3: BÚSQUEDA POR CASO / CONSULTA COMPLEJA
+        else {
+            console.log(`💼 Modo Caso / Consulta Compleja`);
+            const clasificacion = await clasificarConsulta(pregunta);
+            leyId = clasificacion.ley_id || 3;
 
-        if (articulos.length === 0) {
-            console.log('🔄 Buscando en todas las leyes...');
-            articulos = await buscarArticulos(pregunta, null);
-            if (articulos.length > 0) {
-                leyId = articulos[0].ley_id;
+            console.log(`🔍 Buscando en ${LEY_MAP[leyId]}`);
+            
+            articulos = await buscarPorSimilitud(pregunta, leyId, 30);
+            articulos = await forzarArticulosClave(pregunta, articulos, leyId);
+
+            // MODO 4: FALLBACK TRANSVERSAL
+            if (articulos.length === 0) {
+                console.log(' Fallback Transversal: Buscando en todas las leyes...');
+                articulos = await buscarPorSimilitud(pregunta, null, 30);
+                if (articulos.length > 0) {
+                    leyId = articulos[0].ley_id;
+                }
             }
         }
 
-        if (articulos.length === 0) {
+        if (!articulos || articulos.length === 0) {
             return res.json({
-                respuesta: "⚠️ No encontré artículos relevantes. Consulta con un abogado."
+                respuesta: "️ No encontré artículos relevantes. Consulta con un abogado."
             });
         }
 
-        console.log(`📚 ${articulos.length} artículos encontrados`);
+        console.log(`📚 Total: ${articulos.length} artículos encontrados`);
 
         let respuesta = await generarRespuesta(pregunta, articulos, leyId);
 
@@ -652,7 +596,7 @@ app.post('/api/consultar', async (req, res) => {
         res.json({ respuesta: respuesta || "⚠️ No tengo información suficiente. Consulta con un abogado." });
 
     } catch (error) {
-        console.error(`❌ Error:`, error);
+        console.error(`❌ Error crítico:`, error);
         res.status(500).json({
             respuesta: "⚠️ Error en el servidor. Intenta de nuevo."
         });
