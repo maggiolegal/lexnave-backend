@@ -285,7 +285,7 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
                 similitud: 0.99
             };
         }
-        console.log(` Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
+        console.log(`❌ Artículo ${numeroArticulo} NO encontrado en ley ${leyId}`);
         return null;
     } catch (e) {
         console.error(`❌ Error buscando artículo ${numeroArticulo}:`, e.message);
@@ -293,10 +293,11 @@ async function buscarArticuloPorNumero(leyId, numeroArticulo) {
     }
 }
 
-// ========== DETECTAR CONSULTA DIRECTA DE ARTÍCULO (MEJORADO) ==========
+// ========== DETECTAR CONSULTA DIRECTA DE ARTÍCULO (REGEX DEFINITIVA) ==========
 function detectarArticuloDirecto(pregunta) {
-    // Regex mejorado: captura "articulo 1185", "art. 1185", "artículo 1185 del código civil", etc.
-    const regex = /(?:art(?:ículo)?\.?\s*)(\d+)(?:\s+(?:del|de la|del código|código)\s+(\w+(?:\s+\w+)*))?/i;
+    // Regex ultra-permisiva: captura "art", "articulo", "artículo" + cualquier separador + número
+    // Opcionalmente captura la ley mencionada después del número
+    const regex = /(?:art(?:[íi]culo)?\.?\s*)(\d+)(?:\s+(?:del|de\s+la|del\s+c[oó]digo|c[oó]digo)\s+(\w+(?:\s+\w+)*))?/i;
     const match = pregunta.match(regex);
     
     if (!match) return null;
@@ -347,7 +348,7 @@ async function clasificarConsulta(pregunta) {
         });
 
         const result = safeJsonParse(response.choices[0].message.content);
-        console.log(` Clasificación: Ley ${result.ley_id}`);
+        console.log(`📋 Clasificación: Ley ${result.ley_id}`);
         return result;
     } catch (error) {
         console.warn("⚠️ Clasificación falló, usando fallback...");
@@ -533,10 +534,10 @@ app.post('/api/consultar', async (req, res) => {
     try {
         let leyId, articulos;
 
-        // MODO 1: ARTÍCULO DIRECTO (Regex mejorado)
+        // MODO 1: ARTÍCULO DIRECTO (Regex definitiva)
         const articuloDirecto = detectarArticuloDirecto(pregunta);
         if (articuloDirecto) {
-            console.log(`🎯 Modo Artículo Directo: Art. ${articuloDirecto.numero}`);
+            console.log(` Modo Artículo Directo: Art. ${articuloDirecto.numero}`);
             leyId = articuloDirecto.leyId || 3;
             
             const artEncontrado = await buscarArticuloPorNumero(leyId, articuloDirecto.numero);
@@ -604,7 +605,7 @@ app.post('/api/consultar', async (req, res) => {
             respuesta = validacion.respuesta;
             
             if (validacion.corregida) {
-                console.log('🛡️ Respuesta corregida automáticamente por validación de lapsos');
+                console.log('️ Respuesta corregida automáticamente por validación de lapsos');
             }
             
             respuesta = limpiarRespuesta(respuesta, articulos);
@@ -623,7 +624,7 @@ app.post('/api/consultar', async (req, res) => {
 // ========== INICIO DEL SERVIDOR ==========
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, async () => {
-    console.log(' LexnaVe Backend iniciando...');
+    console.log('🚀 LexnaVe Backend iniciando...');
     await initEmbedder();
     console.log(`🚀 LexnaVe Backend activo en puerto ${PORT}`);
 });
